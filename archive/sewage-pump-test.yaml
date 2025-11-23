@@ -1,0 +1,242 @@
+# See https://www.espboards.dev/esp32/esp32-c3-super-mini-plus/
+
+esphome:
+  name: sewage-pump-test
+  friendly_name: Sewage pump test
+  area: Vrt
+  #compile_process_limit: 2
+  on_boot:
+    priority: 600  # Medium-high priority (after WiFi connects)
+    then:
+      - light.turn_on:
+          id: onboard_rgb_led
+          red: 50%
+          green: 0%
+          blue: 50%
+          brightness: 100%  # Optional, for full brightnes
+
+esp32:
+  board: esp32-c3-devkitm-1
+  variant: ESP32C3
+  framework:
+    type: esp-idf
+
+# Enable logging
+logger:
+  level: DEBUG  # Options: DEBUG, INFO, WARN, ERROR, NONE
+  logs:
+    esp-idf: INFO    
+    
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "gJ20gslQIuofy2gVJ74WYjROaMTg4DAeeMeX0L6QRU4="
+
+ota:
+  - platform: esphome
+    password: "233c18462636e6c5dfa2d2391ae552bd"
+
+wifi:
+  output_power: 10.5dB
+  networks:
+  - ssid: !secret wifi_ssid
+    password: !secret wifi_password
+  - ssid: !secret wifi_mansarda_ssid
+    password: !secret wifi_password
+  domain: .lan
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Sewage-Pump TFallback Hotspot"
+    password: "LMFjiVM3WcvZ"
+
+captive_portal:
+
+web_server:
+  port: 80
+
+# OneWire bus for DS18B20 on GPIO5
+one_wire:
+  - platform: gpio
+    pin:
+      number: GPIO5
+      mode:
+        input: true
+        pullup: true
+
+
+uart:
+  tx_pin: GPIO21 # GPIO6
+  rx_pin: GPIO20 # GPIO7
+  baud_rate: 9600
+  id: uart_0    
+
+
+number:
+  - platform: template
+    name: "Pump Activation Level (High)"
+    id: pump_high_level
+    min_value: 30
+    max_value: 100
+    step: 1
+    unit_of_measurement: "cm"
+    optimistic: true
+    restore_value: true
+    initial_value: 40
+    on_value:
+      then:
+        - logger.log: "Pump high level set to ${value}cm"
+
+  - platform: template
+    name: "Pump Deactivation Level (Low)"
+    id: pump_low_level
+    min_value: 100
+    max_value: 180
+    step: 1
+    unit_of_measurement: "cm"
+    optimistic: true
+    restore_value: true
+    initial_value: 140
+    on_value:
+      then:
+        - logger.log: "Pump low level set to ${value}cm"
+        
+
+sensor:
+  - platform: wifi_signal
+    name: "WiFi Signal Strength"
+    id: wifi_rssi
+    update_interval: 30s  # Optional: Adjust how often it updates (default: 60s)
+    unit_of_measurement: "dBm"
+    accuracy_decimals: 0   # Optional: Reduce decimal places for cleaner readings
+    device_class: signal_strength
+    entity_category: diagnostic  # Optional: Hides from Home Assistant by default  
+  - platform: dallas_temp
+    name: "Temperature"
+    update_interval: 15s
+  - platform: "jsn_sr04t"
+    name: "Distance"
+    update_interval: 1s
+    model: "jsn_sr04t"
+    uart_id: uart_0
+    filters:
+      - filter_out: 6.0
+      - clamp:
+          min_value: 0.3
+          max_value: 1.9
+          ignore_out_of_range: true
+      - sliding_window_moving_average:
+          window_size: 10  # Number of measurements to average
+          send_every: 10 # How often to send the new average
+          send_first_at: 8
+    on_value_range:
+        - above: !lambda return id(pump_high_level).state/100.0;
+          then:
+            - switch.turn_on: sewage_pump_relay
+            - script.execute: pump_timeout_script  # <-- Start safety timer
+            - light.turn_on:
+                id: onboard_rgb_led
+                red: 100%
+                green: 0%
+                blue: 0%
+                       
+        - below: !lambda return id(pump_low_level).state/100.0;
+          then:
+            - switch.turn_off: sewage_pump_relay
+            - script.stop: pump_timeout_script  # <-- Cancel timer if turned off early
+            - light.turn_on:
+                id: onboard_rgb_led
+                red: 0%
+                green: 100%
+                blue: 0%
+
+    
+  - platform: adc
+    pin: GPIO4
+    id: adc_sensor
+    attenuation: auto
+
+  - platform: ct_clamp
+    sensor: adc_sensor
+    name: "CT Clamp Current"
+    update_interval: 1s
+    filters:
+      - calibrate_linear:
+         - 0.003 -> 0.0
+         - 0.6 -> 1.8
+      - sliding_window_moving_average:
+          window_size: 10  # Number of measurements to average
+          send_every: 5 # How often to send the new average
+          send_first_at: 4
+
+    
+# Define the internal LED pin and configure it to blink   
+#interval:
+#  - interval: 500ms
+#    then:
+#      - light.toggle: esp_status_led
+
+switch:
+  - platform: gpio
+    name: "Sewage pump"
+    pin:
+      number: GPIO3
+      inverted: true
+    id: sewage_pump_relay
+    restore_mode: ALWAYS_OFF
+    interlock: &pump_interlock [sewage_pump_relay]
+    interlock_wait_time: 300s
+
+  - platform: gpio
+    name: "Garden light"
+    pin:
+      number: GPIO1
+      inverted: true
+    id: garden_light_relay
+    restore_mode: ALWAYS_OFF
+
+light:
+#  - platform: status_led
+ #   name: "Status LED"
+ #   id: esp_status_led
+ #   icon: "mdi:alarm-light"
+ #   pin:
+ #     number: GPIO8
+ #     inverted: false
+ #   restore_mode: ALWAYS_OFF
+  - platform: esp32_rmt_led_strip
+    rgb_order: GRB
+    chipset: ws2812
+    pin: GPIO8
+    num_leds: 1
+    name: "Onboard RGB LED"
+    id: onboard_rgb_led
+    
+
+binary_sensor:
+  - platform: status
+    name: "Pump Status"
+    id: pump_status
+    entity_category: diagnostic
+
+text_sensor:
+  - platform: version
+    name: "ESPHome Version"
+    entity_category: diagnostic
+  
+script:
+  - id: pump_timeout_script
+    mode: restart
+    then:
+      - delay: 5min  # Adjust timeout duration here
+      - logger.log: "Pump timeout reached — turning off pump"
+      - switch.turn_off: sewage_pump_relay
+      - light.turn_on:
+          id: onboard_rgb_led
+          red: 0%
+          green: 0%
+          blue: 100%
+      - switch.turn_on: garden_light_relay
+
+
+
+
