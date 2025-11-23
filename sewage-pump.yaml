@@ -183,9 +183,10 @@ sensor:
     model: jsn_sr04t
     uart_id: uart_0
     filters:
+      - timeout: 5min
       - clamp:
           min_value: 0.1
-          max_value: 2.0
+          max_value: 1.9
           ignore_out_of_range: true
       - calibrate_linear:
           # Format: sensor reading -> actual measured distance
@@ -301,15 +302,15 @@ sensor:
     model: jsn_sr04t # not aj_sr04m see https://community.home-assistant.io/t/waterproof-ultrasonic-distance-sensors-jsn-sr04t-aj-sr04m-or-sr04m-2/836561/8
     uart_id: uart_1
     filters:
+      - timeout: 10min  
       - clamp:
           min_value: 0.1
           max_value: 1.8
           ignore_out_of_range: true
-      - min:
-          window_size: 50
+      - median:
+          window_size: 51
           send_every: 50
           send_first_at: 5
-      - timeout: 5min  
       # Sensor shows 1.451 m when totaly empty and that is 1.777 m from the top
       # Max height is 0.333 m sensor reading. However, it lowered to 0.358 m due to some leackage
       # Pumping is possible up to 1.700 m from the top (equals 0% fill level)
