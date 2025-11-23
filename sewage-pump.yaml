@@ -1,4 +1,4 @@
-# version: 1.5.0
+# version: 1.6.0
 # See https://www.espboards.dev/esp32/esp32-c3-super-mini-plus/
 # Tank dimensions
 # Large tank: south: 2.039 m, north: 1.956 m
@@ -39,7 +39,7 @@ logger:
     sensor: INFO    # Disables [D][sensor:131] debug messages
     ct_clamp: INFO  # Disables [D][ct_clamp:041] debug messages
     jsn_sr04t: INFO    # Enable debug logging for JSN-SR04T sensor
-    distance: DEBUG  # custom log tag for distance sensor
+    distance: DEBUG  # Custom log tag for distance sensor
 
 
 # Enable Home Assistant API
@@ -183,7 +183,6 @@ sensor:
     model: jsn_sr04t
     uart_id: uart_0
     filters:
-      - filter_out: 6.0
       - clamp:
           min_value: 0.1
           max_value: 2.0
@@ -194,10 +193,44 @@ sensor:
             - 0.506 -> 0.841  # Point 1
             - 1.430 -> 1.690
             #- 1.445 -> 1.703  # Point 2
-      - sliding_window_moving_average:
-          window_size: 10  # Number of measurements to average
-          send_every: 10 # How often to send the new average
-          send_first_at: 5
+      # - min:
+      #     window_size: 5  # Number of measurements
+      #     send_every: 2 # How often to send
+      #     send_first_at: 2
+      # # Dynamic min/max window (5 samples):
+      #  - When pump is OFF  -> use MIN of last 5 samples (idle smoothing)
+      #  - When pump is ON   -> use MAX of last 5 samples (follow falling level)
+      - lambda: |-
+          static float buf[10];
+          static int idx = 0;
+          static int count = 0;
+
+          // store current sample in ring buffer
+          buf[idx] = x;
+          idx = (idx + 1) % 10;
+          if (count < 10) count++;
+
+          if (count == 0) {
+            // safety fallback: no history yet
+            return x;
+          }
+
+          float extreme = buf[0];
+
+          if (id(sewage_pump_relay).state) {
+            // Pump ON -> use MAX of window
+            for (int i = 1; i < count; i++) {
+              if (buf[i] > extreme) extreme = buf[i];
+            }
+          } else {
+            // Pump OFF -> use MIN of window
+            for (int i = 1; i < count; i++) {
+              if (buf[i] < extreme) extreme = buf[i];
+            }
+          }
+
+          return extreme;
+
     on_value_range:
         - below: !lambda return id(pump_high_level).state/100.0;
           then:
@@ -256,9 +289,10 @@ sensor:
             id(distance_samples)++;
         - logger.log:
             tag: distance
-            format: "Raw Distance (m): %.3f"
+            format: "Raw Distance (m): %.3f, count: %d"
             args:
               - id(distance_sensor).raw_state
+              - id(distance_samples)
   # Second  sensor 
   - platform: jsn_sr04t
     id: distance_sensor_2
@@ -267,12 +301,11 @@ sensor:
     model: jsn_sr04t # not aj_sr04m see https://community.home-assistant.io/t/waterproof-ultrasonic-distance-sensors-jsn-sr04t-aj-sr04m-or-sr04m-2/836561/8
     uart_id: uart_1
     filters:
-      - filter_out: 6.0
       - clamp:
           min_value: 0.1
           max_value: 1.8
           ignore_out_of_range: true
-      - sliding_window_moving_average:
+      - min:
           window_size: 50
           send_every: 50
           send_first_at: 5
@@ -395,7 +428,7 @@ script:
       - switch.turn_on: garden_light_relay
 
 interval:
-  - interval: 6s
+  - interval: 10s # When pump is OFF
     id: normal_interval
     then:
       - if:
@@ -404,8 +437,7 @@ interval:
               switch.is_on: sewage_pump_relay
           then:
             - component.update: distance_sensor
-
-  - interval: 0.3s
+  - interval: 0.5s # When pump is ON
     id: pump_interval
     then:
       - if:
