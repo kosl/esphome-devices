@@ -1,0 +1,58 @@
+esphome:
+  name: mini-switch-fe8951
+  friendly_name: Mini switch fe8951
+
+bk72xx:
+  board: generic-bk7231n-qfn32-tuya
+
+logger:
+
+api:
+  encryption:
+    key: "ySEfr/BLLrB0zwyENTLq56Z7khUtEhUaBPvchW8UUOg="
+
+ota:
+  - platform: esphome
+    password: "bcf3c8a9ddf4206e9de4f06b25131761"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Mini-Switch-Fe8951"
+    password: "LiQZVCj3GCKO"
+
+captive_portal:
+
+text_sensor:
+  - platform: libretiny
+    version:
+      name: LibreTiny Version
+
+binary_sensor:
+  - platform: gpio
+    id: binary_onoff_1
+    pin:
+      number: P14
+      inverted: true
+      mode: INPUT_PULLUP
+    on_state:
+      then:
+        - switch.toggle: switch_1
+  - platform: gpio
+    id: binary_switch_all
+    pin:
+      number: P8
+      mode: INPUT_PULLDOWN
+    on_press:
+      then:
+        - switch.toggle: switch_1
+
+switch:
+  - platform: gpio
+    id: switch_1
+    name: Relay 1
+    pin: P15
+
+status_led:
+  pin: P6

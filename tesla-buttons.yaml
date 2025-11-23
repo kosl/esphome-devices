@@ -1,0 +1,150 @@
+# See https://www.sudo.is/docs/esphome/boards/esp32c3supermini/
+# This esp32c3 fails to connect to WPA2 encrypted WiFi and 
+# I have hidden the "begunje37 etera" SSID on eteradxa with
+#   nmcli connection modify etera-ap 802-11-wireless.hidden yes
+#   nmcli connection show etera-ap|grep hidden
+
+esphome:
+  name: tesla-buttons
+  friendly_name:  Tesla buttons
+
+esp32:
+  board: esp32-c3-devkitm-1
+  variant: ESP32C3
+  framework:
+    type: esp-idf
+    #type: arduino
+    
+
+# Enable logging
+logger:
+  level: VERBOSE  # Global verbose logging
+  logs:
+    wifi: DEBUG    # Debug Wi-Fi connectivity issues
+    esp32_ble: ERROR  # Suppress BLE logs if not needed
+  #hardware_uart: USB_SERIAL_JTAG  # For ESP32-C3 USB logging
+  
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "NYIs7txvjEmfDQQyMjdX6TfmB+9qP4ovH53RQbrEttY="
+
+ota:
+  - platform: esphome
+    password: "85656693dbeb2b25861f5bc06fb0b925"
+
+wifi:
+  output_power: 8.5dB
+  fast_connect: True
+  ssid: !secret wifi_eteradxa_ssid
+  password: !secret wifi_eteradxa_password
+  #bssid: "E8:FB:1C:F6:18:EF"
+  # Enhanced reconnect behavior
+  reboot_timeout: 15min  # Reboot if no connection after 15 minutes
+  power_save_mode: none  # Better reliability over power saving
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Tesla-Buttons Fallback Hotspot"
+    password: "40oVQAvheesN"
+
+
+# Add WiFi reconnect automation
+
+
+captive_portal:
+
+# Define the internal LED pin and configure it to blink   
+#interval:
+#  - interval: 1000ms
+#    then:
+#      - light.toggle: esp_status_led
+
+light:
+  - platform: status_led
+    name: "Status LED"
+    id: esp_status_led
+    icon: "mdi:alarm-light"
+    pin:
+      number: GPIO8
+      inverted: true
+      ignore_strapping_warning: true 
+    restore_mode: ALWAYS_OFF
+
+# Define the button on GPIO10
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO10
+      mode: INPUT
+      inverted: true      # Button will be active LOW (pressed when the pin is low)
+    name: "MENU"
+    icon: "mdi:emoticon-outline"
+    on_press:
+      - light.toggle: esp_status_led  # Toggle the internal LED when the button is pressed
+# Define the button on GPIO0
+  - platform: gpio
+    pin:
+      number: GPIO0
+      mode: INPUT
+      inverted: true      # Button will be active LOW (pressed when the pin is low)
+    name: "ENTER"
+    icon: "mdi:emoticon-outline"
+    on_press:
+      - light.toggle: esp_status_led  # Toggle the internal LED when the button is pressed
+# Define the button on GPIO1
+  - platform: gpio
+    pin:
+      number: GPIO1
+      mode: INPUT
+      inverted: true      # Button will be active LOW (pressed when the pin is low)
+    name: "DOWN"
+    icon: "mdi:emoticon-outline"
+    on_press:
+      - light.toggle: esp_status_led  # Toggle the internal LED when the button is pressed
+# Define the button on GPIO3
+  - platform: gpio
+    pin:
+      number: GPIO3
+      mode: INPUT
+      inverted: true      # Button will be active LOW (pressed when the pin is low)
+    name: "ESC"
+    icon: "mdi:emoticon-outline"
+    on_press:
+      - light.toggle: esp_status_led  # Toggle the internal LED when the button is pressed
+  - platform: status
+    name: "Status"
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+    ssid:
+      name: "Connected SSID"
+    bssid:
+      name: "BSSID"
+    #scan_results:
+    #  name: Latest Scan Results
+
+sensor:
+  - platform: wifi_signal
+    name: "WiFi Signal Strength"
+    id: wifi_rssi
+    update_interval: 5min  # Optional: Adjust how often it updates (default: 60s)
+    unit_of_measurement: "dBm"
+    accuracy_decimals: 0   # Optional: Reduce decimal places for cleaner readings
+    device_class: signal_strength
+    entity_category: diagnostic  # Optional: Hides from Home Assistant by default 
+
+
+#esp32_ble_tracker:
+#  scan_parameters:
+#    interval: 800ms
+#    window: 800ms
+#    active: true
+
+#bluetooth_proxy:
+#  active: true
+
+web_server:
+  port: 80
