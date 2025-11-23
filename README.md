@@ -4,11 +4,14 @@ This is a list of my HomeAssistant ESPhome devices.
 Few of them are not used actively.
 
 For a device to appear in this list the following needs to be done as root:
-~~~
+~~~ sh
 sudo -i
 cd /armbian/haos/homeassistant/esphome/
-ln device.yaml /home/leon/esphome-devices/
-exit
+git clone this_repo .
+chown -R leon .git README.md
+~~~
+then as user symlink `/armbian/haos/homeassistant/esphome/` and use
+~~~ sh
 cd ~/esphome-devices/
 git add device.yaml
 git commit -m "New device"

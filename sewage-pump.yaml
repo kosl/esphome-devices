@@ -38,7 +38,8 @@ logger:
     esp-idf: INFO   # To silent GPIO4 debug messages 
     sensor: INFO    # Disables [D][sensor:131] debug messages
     ct_clamp: INFO  # Disables [D][ct_clamp:041] debug messages
-    jsn_sr04t: DEBUG    # Enable debug logging for JSN-SR04T sensor
+    jsn_sr04t: INFO    # Enable debug logging for JSN-SR04T sensor
+    distance: DEBUG  # custom log tag for distance sensor
 
 
 # Enable Home Assistant API
@@ -85,6 +86,11 @@ globals:
     type: float
     restore_value: false
     initial_value: '0.0'
+  - id: distance_samples
+    type: int
+    restore_value: false
+    initial_value: '0'
+
 
 
 # OneWire bus for DS18B20 on GPIO5
@@ -173,10 +179,9 @@ sensor:
   - platform: jsn_sr04t # AJ-SR04M https://www.thingiverse.com/thing:6663550
     id: distance_sensor
     name: "Distance"
-    update_interval: 1s # use dynamic update with interval below
+    update_interval: never # use dynamic update with interval below
     model: jsn_sr04t
     uart_id: uart_0
-    # expire_after: 30s # requires MQTT
     filters:
       - filter_out: 6.0
       - clamp:
@@ -232,15 +237,28 @@ sensor:
                         float area = M_PI * r * r;     // m²
                         return id(total_pumped_volume) + (delta * area); // volume in m³
                   - lambda: |-
-                      id(total_pumped_volume_sensor).update();                
-    on_raw_value:
+                      id(total_pumped_volume_sensor).update();  
+    on_value: 
       then:
         - logger.log:
-            format: "Distance (m): %.3f (raw: %.3f), Pump start at (m): %.3f"
+            tag: distance
+            level: INFO
+            format: "Distance (m): %.3f, required %d samples"
             args:
               - id(distance_sensor).state
+              - id(distance_samples)
+        - globals.set:
+                id: distance_samples
+                value: '0'
+    on_raw_value:
+      then:
+        - lambda: |-
+            id(distance_samples)++;
+        - logger.log:
+            tag: distance
+            format: "Raw Distance (m): %.3f"
+            args:
               - id(distance_sensor).raw_state
-              - id(pump_start_distance)  
   # Second  sensor 
   - platform: jsn_sr04t
     id: distance_sensor_2
@@ -377,24 +395,24 @@ script:
       - switch.turn_on: garden_light_relay
 
 interval:
-  # - interval: 5s
-  #   id: normal_interval
-  #   then:
-  #     - if:
-  #         condition:
-  #           not:
-  #             switch.is_on: sewage_pump_relay
-  #         then:
-  #           - component.update: distance_sensor
+  - interval: 6s
+    id: normal_interval
+    then:
+      - if:
+          condition:
+            not:
+              switch.is_on: sewage_pump_relay
+          then:
+            - component.update: distance_sensor
 
-  # - interval: 0.2s
-  #   id: pump_interval
-  #   then:
-  #     - if:
-  #         condition:
-  #           switch.is_on: sewage_pump_relay
-  #         then:
-  #           - component.update: distance_sensor
+  - interval: 0.3s
+    id: pump_interval
+    then:
+      - if:
+          condition:
+            switch.is_on: sewage_pump_relay
+          then:
+            - component.update: distance_sensor
   - interval: 1s
     id: ct_publish_control
     then:
