@@ -1,0 +1,42 @@
+#pragma once
+
+#include "esphome.h"
+#include "esphome/core/component.h"
+#include "esphome/core/automation.h"
+#include "esphome/components/sensor/sensor.h"
+#include "driver/gpio.h"
+#include "esp_timer.h"
+
+namespace esphome {
+namespace evse_cp_sampler {
+
+class CpSampler : public Component {
+ public:
+  void setup() override;
+  void dump_config() override;
+
+  void set_pwm_pin(uint8_t pin) { pwm_pin_ = pin; }
+  void set_adc_sensor(sensor::Sensor *sensor) { adc_sensor_ = sensor; }
+  void set_samples(uint8_t samples) { samples_ = samples; }
+
+  // Setter for the automation trigger
+  void set_state_change_trigger(Trigger<int> *trigger) {
+    state_change_trigger_ = trigger;
+  }
+
+ protected:
+  uint8_t pwm_pin_;
+  sensor::Sensor *adc_sensor_ = nullptr;
+  uint8_t samples_ = 10;
+
+  // The trigger member
+  Trigger<int> *state_change_trigger_ = nullptr;
+
+  esp_timer_handle_t sample_timer_ = nullptr;
+
+  static void IRAM_ATTR timer_callback(void *arg);
+  void start_sample_timer();
+};
+
+}  // namespace evse_cp_sampler
+}  // namespace esphome
