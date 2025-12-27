@@ -19,9 +19,12 @@ class CpSampler : public Component {
   void set_adc_sensor(sensor::Sensor *sensor) { adc_sensor_ = sensor; }
   void set_samples(uint8_t samples) { samples_ = samples; }
 
-  // Setter for the automation trigger
   void set_state_change_trigger(Trigger<int> *trigger) {
     state_change_trigger_ = trigger;
+  }
+
+  void set_raw_value_trigger(Trigger<int> *trigger) {
+    raw_value_trigger_ = trigger;
   }
 
  protected:
@@ -29,8 +32,12 @@ class CpSampler : public Component {
   sensor::Sensor *adc_sensor_ = nullptr;
   uint8_t samples_ = 10;
 
-  // The trigger member
+  uint32_t sum_raw_values_ = 0;
+  uint16_t counter_ = 0;
+  int old_state_ = -1;
+
   Trigger<int> *state_change_trigger_ = nullptr;
+  Trigger<int> *raw_value_trigger_ = nullptr;
 
   esp_timer_handle_t sample_timer_ = nullptr;
 

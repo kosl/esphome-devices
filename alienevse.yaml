@@ -281,7 +281,10 @@ evse_cp_sampler:
       number: GPIO10
       allow_other_uses: true
     adc_sensor: cp_ev_in
-    samples: 3
+    samples: 100
+    on_raw_value:
+      - lambda: |-
+          ESP_LOGD("main", "Average raw ADC value: %d", x);
     on_state_change:
       - lambda: |-
           const int new_state = x;

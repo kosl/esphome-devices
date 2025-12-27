@@ -9,10 +9,11 @@ namespace evse_cp_sampler {
 static const char *const TAG = "evse_cp_sampler";
 
 void CpSampler::setup() {
-  // Set pin as input-readable (even if used as LEDC output)
+  sum_raw_values_ = 0;
+  counter_ = 0;
+
   gpio_set_direction((gpio_num_t)pwm_pin_, GPIO_MODE_INPUT);
 
-  // Register rising edge interrupt
   gpio_set_intr_type((gpio_num_t)pwm_pin_, GPIO_INTR_POSEDGE);
   gpio_install_isr_service(0);
   gpio_isr_handler_add((gpio_num_t)pwm_pin_, [](void *arg) {
@@ -21,11 +22,10 @@ void CpSampler::setup() {
   }, this);
   gpio_intr_enable((gpio_num_t)pwm_pin_);
 
-  // Create one-shot timer
   esp_timer_create_args_t timer_args = {
       .callback = timer_callback,
       .arg = this,
-      .dispatch_method = ESP_TIMER_TASK,  // Correct value
+      .dispatch_method = ESP_TIMER_TASK,
       .name = "cp_sample",
       .skip_unhandled_events = true,
   };
@@ -42,15 +42,37 @@ void IRAM_ATTR CpSampler::timer_callback(void *arg) {
   auto self = static_cast<CpSampler *>(arg);
   if (!self->adc_sensor_) return;
 
-  float raw = self->adc_sensor_->get_raw_state();
+  uint16_t raw = self->adc_sensor_->get_raw_state();
+  self->sum_raw_values_ += raw;
 
+  if (++self->counter_ < self->samples_) {
+    return;
+  }
+
+  // Calculate average raw value
+  int avg_raw = static_cast<int>(self->sum_raw_values_) / self->samples_;
+
+  // Reset accumulators
+  self->sum_raw_values_ = 0;
+  self->counter_ = 0;
+
+  // Trigger on_raw_value with average raw
+  if (self->raw_value_trigger_) {
+    self->raw_value_trigger_->trigger(avg_raw);
+  }
+  
+  // State detection
   int new_state = 0;
-  if (raw > 4000) new_state = 1;
-  else if (fabsf(raw - 3650.0f) < 100) new_state = 2;
-  else if (fabsf(raw - 3200.0f) < 100) new_state = 3;
+  if (avg_raw > 4000) new_state = 1;
+  else if (abs(avg_raw - 3650) < 100) new_state = 2;
+  else if (abs(avg_raw - 3200) < 100) new_state = 3;
 
-  if (self->state_change_trigger_) {
-    self->state_change_trigger_->trigger(new_state);
+  if (self->old_state_ != new_state) {
+    // Trigger on_state_change
+    if (self->state_change_trigger_) {
+      self->state_change_trigger_->trigger(new_state);
+    }
+    self->old_state_ = new_state;
   }
 }
 
