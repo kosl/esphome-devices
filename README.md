@@ -9,8 +9,8 @@ Git is initialized therein and only later a new `.git` is created with
 sudo -i
 cd /armbian/haos/homeassistant/esphome/
 git clone this_repo .
-chgrp -R leon .git README.md *.yaml .gitignore
-chmod -R g+w .git README.md *.yaml .gitignore
+chgrp -R leon .git .gitignore *
+chmod -R g+w .git .gitignore *
 # then as a user symlink 
 ln -s /armbian/haos/homeassistant/esphome/ ${HOME}/esphome-devices
 ~~~

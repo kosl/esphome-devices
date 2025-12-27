@@ -1,7 +1,7 @@
 #include "evse_cp_sampler.h"
 #include "esphome/core/log.h"
-#include "driver/gpio.h"       // for gpio_*
-#include "esp_timer.h"         // for esp_timer_*
+#include "driver/gpio.h"
+#include "esp_timer.h"
 
 namespace esphome {
 namespace evse_cp_sampler {
