@@ -5,6 +5,7 @@
 #include "esphome/core/automation.h"
 #include "esphome/components/sensor/sensor.h"
 #include "driver/gpio.h"
+#include "esp_adc/adc_oneshot.h"
 #include "esp_timer.h"
 
 namespace esphome {
@@ -42,6 +43,8 @@ class CpSampler : public Component {
   esp_timer_handle_t sample_timer_ = nullptr;
   esp_timer_handle_t heartbeat_timer_ = nullptr;
 
+  adc_oneshot_unit_handle_t adc_handle_ = nullptr;
+  
   static void IRAM_ATTR timer_callback(void *arg);
   void start_sample_timer();
 };

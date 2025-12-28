@@ -22,6 +22,19 @@ void CpSampler::setup() {
   }, this);
   gpio_intr_enable((gpio_num_t)pwm_pin_);
 
+// Initialize oneshot ADC (GPIO0 = ADC1_CHANNEL_0)
+  adc_oneshot_unit_init_cfg_t init_cfg = {
+    .unit_id = ADC_UNIT_1,
+    .ulp_mode = ADC_ULP_MODE_DISABLE,
+  };
+  ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_cfg, &adc_handle_));
+
+  adc_oneshot_chan_cfg_t chan_cfg = {
+    .atten = ADC_ATTEN_DB_12,
+    .bitwidth = ADC_BITWIDTH_DEFAULT,
+  };
+  ESP_ERROR_CHECK(adc_oneshot_config_channel(adc_handle_, ADC_CHANNEL_0, &chan_cfg));
+
   // Create one-shot sampling timer
   esp_timer_create_args_t timer_args = {
       .callback = timer_callback,
@@ -45,7 +58,7 @@ void CpSampler::setup() {
   // Start heartbeat timer immediately (periodic)
   esp_timer_start_periodic(heartbeat_timer_, 2000);  // 2000 µs = 500 Hz
 
-  ESP_LOGI(TAG, "EVSE CP Sampler ready on pin %d (threshold: %d samples)", pwm_pin_, samples_);
+  ESP_LOGI(TAG, "EVSE CP Sampler ready on pin %d (samples: %d, heartbeat: 500 Hz)", pwm_pin_, samples_);
 }
 
 void CpSampler::start_sample_timer() {
@@ -58,10 +71,17 @@ void CpSampler::start_sample_timer() {
 
 void IRAM_ATTR CpSampler::timer_callback(void *arg) {
   auto self = static_cast<CpSampler *>(arg);
-  if (!self->adc_sensor_) return;
 
-  self->adc_sensor_->update(); // TODO use adc_oneshot_read() directly
-  uint16_t raw = self->adc_sensor_->get_raw_state();
+  int raw_adc = 0;
+  esp_err_t ret = adc_oneshot_read(self->adc_handle_, ADC_CHANNEL_0, &raw_adc);
+
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "ADC read failed");
+    return;
+  }
+
+  uint16_t raw = static_cast<uint16_t>(raw_adc);  // 0–4095
+  
   self->sum_raw_values_ += raw;
 
   if (++self->counter_ < self->samples_) {
