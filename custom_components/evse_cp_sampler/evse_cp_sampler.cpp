@@ -42,6 +42,7 @@ void IRAM_ATTR CpSampler::timer_callback(void *arg) {
   auto self = static_cast<CpSampler *>(arg);
   if (!self->adc_sensor_) return;
 
+  self->adc_sensor_->update(); // TODO use adc_oneshot_read() directly
   uint16_t raw = self->adc_sensor_->get_raw_state();
   self->sum_raw_values_ += raw;
 
@@ -67,7 +68,7 @@ void IRAM_ATTR CpSampler::timer_callback(void *arg) {
   else if (abs(avg_raw - 3650) < 100) new_state = 2;
   else if (abs(avg_raw - 3200) < 100) new_state = 3;
 
-  if (self->old_state_ != new_state) {
+  if (new_state != self->old_state_) {
     // Trigger on_state_change
     if (self->state_change_trigger_) {
       self->state_change_trigger_->trigger(new_state);
