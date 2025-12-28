@@ -22,6 +22,7 @@ void CpSampler::setup() {
   }, this);
   gpio_intr_enable((gpio_num_t)pwm_pin_);
 
+  // Create one-shot sampling timer
   esp_timer_create_args_t timer_args = {
       .callback = timer_callback,
       .arg = this,
@@ -31,10 +32,27 @@ void CpSampler::setup() {
   };
   esp_timer_create(&timer_args, &sample_timer_);
 
+  // Create periodic heartbeat timer (500 Hz = 2000 µs period)
+  esp_timer_create_args_t heartbeat_args = {
+      .callback = timer_callback,
+      .arg = this,
+      .dispatch_method = ESP_TIMER_TASK,
+      .name = "cp_heartbeat",
+      .skip_unhandled_events = true,
+  };
+  esp_timer_create(&heartbeat_args, &heartbeat_timer_);
+
+  // Start heartbeat timer immediately (periodic)
+  esp_timer_start_periodic(heartbeat_timer_, 2000);  // 2000 µs = 500 Hz
+
   ESP_LOGI(TAG, "EVSE CP Sampler ready on pin %d (threshold: %d samples)", pwm_pin_, samples_);
 }
 
 void CpSampler::start_sample_timer() {
+  // Restart heartbeat timer (resets its period)
+  esp_timer_restart(heartbeat_timer_, 2000);
+
+  // Start one-shot sampling timer
   esp_timer_start_once(sample_timer_, 50);  // 50 µs
 }
 

@@ -40,6 +40,7 @@ class CpSampler : public Component {
   Trigger<int> *raw_value_trigger_ = nullptr;
 
   esp_timer_handle_t sample_timer_ = nullptr;
+  esp_timer_handle_t heartbeat_timer_ = nullptr;
 
   static void IRAM_ATTR timer_callback(void *arg);
   void start_sample_timer();
