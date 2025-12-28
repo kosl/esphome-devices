@@ -280,7 +280,6 @@ evse_cp_sampler:
     pin:
       number: GPIO10
       allow_other_uses: true
-    adc_sensor: cp_ev_in
     samples: 100
     on_raw_value:
       - lambda: |-

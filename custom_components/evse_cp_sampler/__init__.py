@@ -1,10 +1,9 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import automation, pins
-from esphome.components import sensor
 from esphome.const import CONF_ID, CONF_PIN
 
-DEPENDENCIES = ["sensor"]
+DEPENDENCIES = []
 
 evse_cp_sampler_ns = cg.esphome_ns.namespace("evse_cp_sampler")
 CpSampler = evse_cp_sampler_ns.class_("CpSampler", cg.Component)
@@ -26,7 +25,6 @@ CONFIG_SCHEMA = cv.All(
         {
             cv.GenerateID(): cv.declare_id(CpSampler),
             cv.Required(CONF_PIN): pins.gpio_output_pin_schema,
-            cv.Required("adc_sensor"): cv.use_id(sensor.Sensor),
             cv.Optional("samples", default=100): cv.positive_int,
             cv.Optional("on_state_change"): automation.validate_automation(
                 {
@@ -50,9 +48,6 @@ async def disabled_to_code(config):
     pin = await cg.gpio_pin_expression(config[CONF_PIN])
     cg.add(var.set_pwm_pin(pin))
 
-    adc = await cg.get_variable(config["adc_sensor"])
-    cg.add(var.set_adc_sensor(adc))
-
     cg.add(var.set_samples(config["samples"]))
 
     # on_state_change
@@ -65,4 +60,4 @@ async def disabled_to_code(config):
     if "on_raw_value" in config:
         for conf in config["on_raw_value"]:
             trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
-            await automation.build_automation(trigger, [(cg.float_, "x")], conf)
+            await automation.build_automation(trigger, [(cg.int_, "x")], conf)

@@ -22,7 +22,7 @@ void CpSampler::setup() {
   }, this);
   gpio_intr_enable((gpio_num_t)pwm_pin_);
 
-// Initialize oneshot ADC (GPIO0 = ADC1_CHANNEL_0)
+  // Initialize oneshot ADC (GPIO0 = ADC1_CHANNEL_0)
   adc_oneshot_unit_init_cfg_t init_cfg = {
     .unit_id = ADC_UNIT_1,
     .ulp_mode = ADC_ULP_MODE_DISABLE,
