@@ -7,20 +7,28 @@ namespace esphome {
 namespace evse_cp_sampler {
 
 static const char *const TAG = "evse_cp_sampler";
+using esphome::InternalGPIOPin;
 
 void CpSampler::setup() {
   sum_raw_values_ = 0;
   counter_ = 0;
 
-  gpio_set_direction((gpio_num_t)pwm_pin_, GPIO_MODE_INPUT);
+  if (this->pwm_pin_ != nullptr) {
+    this->pwm_pin_->setup();
+    // Only internal GPIO pins support interrupts
+    //auto gpio_num = static_cast<gpio_num_t>(this->pwm_pin_->get_pin());
+    //gpio_set_direction(gpio_num, GPIO_MODE_INPUT);
+  }
+  
+  // gpio_set_direction((gpio_num_t)pwm_pin_, GPIO_MODE_INPUT);
 
-  gpio_set_intr_type((gpio_num_t)pwm_pin_, GPIO_INTR_POSEDGE);
-  gpio_install_isr_service(0);
-  gpio_isr_handler_add((gpio_num_t)pwm_pin_, [](void *arg) {
-    auto self = static_cast<CpSampler *>(arg);
-    self->start_sample_timer();
-  }, this);
-  gpio_intr_enable((gpio_num_t)pwm_pin_);
+  //gpio_set_intr_type(pwm_pin_->get_pin(), GPIO_INTR_POSEDGE);
+  //gpio_install_isr_service(0);
+  //gpio_isr_handler_add(pwm_pin_->get_pin(), [](void *arg) {
+  //  auto self = static_cast<CpSampler *>(arg);
+  //  self->start_sample_timer();
+  // }, this);
+  //gpio_intr_enable(pwm_pin_->get_pin());
 
   // Initialize oneshot ADC (GPIO0 = ADC1_CHANNEL_0)
   adc_oneshot_unit_init_cfg_t init_cfg = {
@@ -117,7 +125,7 @@ void IRAM_ATTR CpSampler::timer_callback(void *arg) {
 
 void CpSampler::dump_config() {
   ESP_LOGCONFIG(TAG, "EVSE CP Sampler:");
-  ESP_LOGCONFIG(TAG, "  PWM Pin: %d", pwm_pin_);
+  //  ESP_PIN(TAG, "  PWM Pin: %d", this->pwm_pin_);
   ESP_LOGCONFIG(TAG, "  Samples threshold: %d", samples_);
 }
 

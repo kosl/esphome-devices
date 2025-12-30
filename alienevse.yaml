@@ -7,7 +7,7 @@ esp32:
     type: esp-idf
 
 logger:
-  level: INFO
+  level: DEBUG
 
 api:
   encryption:
@@ -95,7 +95,7 @@ globals:
   
   - id: evse_ch_b
     type: bool
-    initial_value: "false"
+    initial_value: "true"
 
   - id: evse_ch_c
     type: bool
@@ -136,16 +136,17 @@ number:
 
 text_sensor:
   - platform: template
+    id: charging_state
     name: "Charging State"
     entity_category: diagnostic
     lambda: |-
       switch (id(evse_state)) {
-        case 1: return std::string{"A (unplugged)"};
-        case 2: return std::string{"B (EV connected)"};
-        case 3: return std::string{"C (Charging requested by EV)"};
+        case 1: return std::string{"A Standby (EVSE ready, vehicle not connected)"};
+        case 2: return std::string{"B Vehicle detected (connected, not charging)"};
+        case 3: return std::string{"C Charging (energy flowing / charging sequence)"};
         default: return std::string{"Unknown"};
       }
-    update_interval: 250ms
+    update_interval: never
 
 # Control Pilot voltage sampling at ADC at GPIO0 occurs 50 µs after PWM (ledc) rising edge
 # Heartbeat sampling at 500 Hz in DC mode (when PWM is disabled)
@@ -157,11 +158,13 @@ evse_cp_sampler:
     samples: 100
     on_raw_value:
       - lambda: |-
-          ESP_LOGD("main", "Average raw ADC value: %d", x);
+          ESP_LOGD("evse", "CP Sampler Average raw ADC value: %d", x);
+          id(cp_ev_in_diag).publish_state(x);
     on_state_change:
       - lambda: |-
           const int state = x;
           id(evse_state) = state;
+          id(charging_state).update();
           if(state == 0) return; // ????
           bool ch_b, ch_c;
           float pwm_pct;
@@ -225,14 +228,13 @@ sensor:
   #   internal: true
 
 
-  # - platform: copy
-  #   name: "Vehicle CP"
-  #   id: cp_ev_in_diag
-  #   source_id: cp_ev_in
-  #   accuracy_decimals: 0
-  #   entity_category: diagnostic
-  #   filters:
-  #     - throttle: 1s
+  - platform: template
+    name: "Vehicle CP"
+    id: cp_ev_in_diag
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    filters:
+      - throttle: 1s
 
   # - platform: copy
   #   id: cp_ev_in_state
@@ -273,45 +275,45 @@ sensor:
   #             id(evse_candidate_count) = 0;
   #           }
 
-  - platform: adc
-    id: cc_l1
-    pin: GPIO2
-    update_interval: never
-    internal: True
-  - platform: ct_clamp
-    sensor: cc_l1
-    name: "L1 Current"
-    update_interval: 2s
-    filters:
-      - calibrate_linear:        
-          - 0 -> 0
-          - 1.0 -> 16.0
-  - platform: adc
-    id: cc_l2
-    pin: GPIO3
-    update_interval: never
-    internal: True
-  - platform: ct_clamp
-    sensor: cc_l2
-    name: "L2 Current"
-    update_interval: 2s
-    filters:
-      - calibrate_linear:        
-          - 0 -> 0
-          - 1.0 -> 16.0
-  - platform: adc
-    id: cc_l3
-    pin: GPIO4
-    update_interval: never
-    internal: True
-  - platform: ct_clamp
-    sensor: cc_l3
-    name: "L3 Current"
-    update_interval: 2s
-    filters:
-      - calibrate_linear:        
-          - 0 -> 0
-          - 1.0 -> 16.0
+  # - platform: adc
+  #   id: cc_l1
+  #   pin: GPIO2
+  #   update_interval: never
+  #   internal: True
+  # - platform: ct_clamp
+  #   sensor: cc_l1
+  #   name: "L1 Current"
+  #   update_interval: 2s
+  #   filters:
+  #     - calibrate_linear:        
+  #         - 0 -> 0
+  #         - 1.0 -> 16.0
+  # - platform: adc
+  #   id: cc_l2
+  #   pin: GPIO3
+  #   update_interval: never
+  #   internal: True
+  # - platform: ct_clamp
+  #   sensor: cc_l2
+  #   name: "L2 Current"
+  #   update_interval: 2s
+  #   filters:
+  #     - calibrate_linear:        
+  #         - 0 -> 0
+  #         - 1.0 -> 16.0
+  # - platform: adc
+  #   id: cc_l3
+  #   pin: GPIO4
+  #   update_interval: never
+  #   internal: True
+  # - platform: ct_clamp
+  #   sensor: cc_l3
+  #   name: "L3 Current"
+  #   update_interval: 2s
+  #   filters:
+  #     - calibrate_linear:        
+  #         - 0 -> 0
+  #         - 1.0 -> 16.0
 
   - platform: template
     name: "PWM Duty"
@@ -321,7 +323,17 @@ sensor:
     entity_category: diagnostic
     lambda: |-
       return id(evse_pwm_duty_pct);
-    update_interval: 250ms
+    update_interval: 1s
+
+  - platform: wifi_signal
+    name: "WiFi Signal Strength"
+    id: wifi_rssi
+    update_interval: 1min  
+    unit_of_measurement: "dBm"
+    accuracy_decimals: 0
+    device_class: signal_strength
+    entity_category: diagnostic 
+ 
 
 
 
