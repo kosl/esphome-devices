@@ -1,5 +1,13 @@
 esphome:
   name: alienevse
+  on_boot: 
+    then:
+      - output.turn_on: cp_ev_out_pwm
+      - output.set_level:
+          id: cp_ev_out_pwm
+          level: "100%"
+      - output.turn_on: cp_ch_out_b_out
+      - output.turn_off: cp_ch_out_c_out
 
 esp32:
   board: esp32-c3-devkitc-02
@@ -23,15 +31,14 @@ wifi:
       password: !secret wifi_password
     - ssid: !secret wifi_eteradxa_ssid
       password: !secret wifi_eteradxa_password
-  output_power: 10.5dB
+  output_power: 8.5dB
+  power_save_mode: none  # Better reliability over power saving
 
   ap:
     ssid: "AlienEVSE Fallback Hotspot"
     password: "ikyY62YLDjVE"
 
-
 captive_portal:
-
 
 external_components:
   - source:
@@ -73,10 +80,8 @@ output:
 
   - platform: ledc
     id: cp_ev_out_pwm
-    pin:
-      number: GPIO10
-      allow_other_uses: true
-    frequency: 1000Hz
+    pin: GPIO10
+    frequency: 1000Hz # default
 
 globals:
   - id: evse_charging_enabled
@@ -95,7 +100,7 @@ globals:
   
   - id: evse_ch_b
     type: bool
-    initial_value: "true"
+    initial_value: "false"
 
   - id: evse_ch_c
     type: bool
@@ -148,17 +153,14 @@ text_sensor:
       }
     update_interval: never
 
-# Control Pilot voltage sampling at ADC at GPIO0 occurs 50 µs after PWM (ledc) rising edge
-# Heartbeat sampling at 500 Hz in DC mode (when PWM is disabled)
+# Control Pilot voltage sampling at ADC at GPIO0 occurs 50 µs after PWM (ledc at GPIO10) rising edge
+# Heartbeat sampling at 500 Hz in DC mode (when PWM is disabled) 
 evse_cp_sampler:
     id: cp_sampler
-    pin:
-      number: GPIO10
-      allow_other_uses: true
-    samples: 100
+    samples: 250
     on_raw_value:
       - lambda: |-
-          ESP_LOGD("evse", "CP Sampler Average raw ADC value: %d", x);
+          ESP_LOGD("evse_cp_sampler", "CP Sampler Average raw ADC value: %d", x);
           id(cp_ev_in_diag).publish_state(x);
     on_state_change:
       - lambda: |-
@@ -202,22 +204,22 @@ evse_cp_sampler:
 
 
 sensor:
-  - platform: adc
-    id: cp_ch_in
-    pin: GPIO1  
-    attenuation: 12db
-    raw: true
-    update_interval: never
-    internal: true
+  # - platform: adc
+  #   id: cp_ch_in
+  #   pin: GPIO1  
+  #   attenuation: 12db
+  #   raw: true
+  #   update_interval: never
+  #   internal: true
 
-  - platform: copy
-    name: "Charger CP"
-    id: cp_ch_in_diag
-    source_id: cp_ch_in
-    accuracy_decimals: 0
-    entity_category: diagnostic
-    filters:
-      - throttle: 1s
+  # - platform: copy
+  #   name: "Charger CP"
+  #   id: cp_ch_in_diag
+  #   source_id: cp_ch_in
+  #   accuracy_decimals: 0
+  #   entity_category: diagnostic
+  #   filters:
+  #     - throttle: 1s
     
   # - platform: adc
   #   id: cp_ev_in
@@ -231,10 +233,13 @@ sensor:
   - platform: template
     name: "Vehicle CP"
     id: cp_ev_in_diag
-    accuracy_decimals: 0
-    entity_category: diagnostic
+    unit_of_measurement: "counts" 
+    entity_category: diagnostic 
     filters:
-      - throttle: 1s
+      - median:
+          window_size: 20  # 20 samples = 5 seconds of data
+          send_every: 80  # Output every 80th median = every 20 seconds
+          send_first_at: 8  # Send first value immediately after 2 seconds
 
   # - platform: copy
   #   id: cp_ev_in_state
@@ -323,7 +328,7 @@ sensor:
     entity_category: diagnostic
     lambda: |-
       return id(evse_pwm_duty_pct);
-    update_interval: 1s
+    update_interval: 10s
 
   - platform: wifi_signal
     name: "WiFi Signal Strength"
@@ -340,4 +345,7 @@ sensor:
 # interval:
 #   - interval: 0us
 #     then:
- 
+button:
+  - platform: restart
+    name: Reboot
+    entity_category: diagnostic
