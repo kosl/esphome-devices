@@ -5,7 +5,7 @@ esphome:
       - output.turn_on: cp_ev_out_pwm
       - output.set_level:
           id: cp_ev_out_pwm
-          level: "100%"
+          level: "10%"
       - output.turn_on: cp_ch_out_b_out
       - output.turn_off: cp_ch_out_c_out
 
@@ -153,7 +153,7 @@ text_sensor:
       }
     update_interval: never
 
-# Control Pilot voltage sampling at ADC at GPIO0 occurs 50 µs after PWM (ledc at GPIO10) rising edge
+# Control Pilot voltage sampling at ADC at GPIO0 occurs 20 µs after PWM (ledc at GPIO10) rising edge
 # Heartbeat sampling at 500 Hz in DC mode (when PWM is disabled) 
 evse_cp_sampler:
     id: cp_sampler
@@ -236,10 +236,7 @@ sensor:
     unit_of_measurement: "counts" 
     entity_category: diagnostic 
     filters:
-      - median:
-          window_size: 20  # 20 samples = 5 seconds of data
-          send_every: 80  # Output every 80th median = every 20 seconds
-          send_first_at: 8  # Send first value immediately after 2 seconds
+      - throttle: 10s
 
   # - platform: copy
   #   id: cp_ev_in_state
@@ -280,45 +277,45 @@ sensor:
   #             id(evse_candidate_count) = 0;
   #           }
 
-  # - platform: adc
-  #   id: cc_l1
-  #   pin: GPIO2
-  #   update_interval: never
-  #   internal: True
-  # - platform: ct_clamp
-  #   sensor: cc_l1
-  #   name: "L1 Current"
-  #   update_interval: 2s
-  #   filters:
-  #     - calibrate_linear:        
-  #         - 0 -> 0
-  #         - 1.0 -> 16.0
-  # - platform: adc
-  #   id: cc_l2
-  #   pin: GPIO3
-  #   update_interval: never
-  #   internal: True
-  # - platform: ct_clamp
-  #   sensor: cc_l2
-  #   name: "L2 Current"
-  #   update_interval: 2s
-  #   filters:
-  #     - calibrate_linear:        
-  #         - 0 -> 0
-  #         - 1.0 -> 16.0
-  # - platform: adc
-  #   id: cc_l3
-  #   pin: GPIO4
-  #   update_interval: never
-  #   internal: True
-  # - platform: ct_clamp
-  #   sensor: cc_l3
-  #   name: "L3 Current"
-  #   update_interval: 2s
-  #   filters:
-  #     - calibrate_linear:        
-  #         - 0 -> 0
-  #         - 1.0 -> 16.0
+  - platform: adc
+    id: cc_l1
+    pin: GPIO2
+    update_interval: never
+    internal: True
+  - platform: ct_clamp
+    sensor: cc_l1
+    name: "L1 Current"
+    update_interval: 2s
+    filters:
+      - calibrate_linear:        
+          - 0 -> 0
+          - 1.0 -> 16.0
+  - platform: adc
+    id: cc_l2
+    pin: GPIO3
+    update_interval: never
+    internal: True
+  - platform: ct_clamp
+    sensor: cc_l2
+    name: "L2 Current"
+    update_interval: 2s
+    filters:
+      - calibrate_linear:        
+          - 0 -> 0
+          - 1.0 -> 16.0
+  - platform: adc
+    id: cc_l3
+    pin: GPIO4
+    update_interval: never
+    internal: True
+  - platform: ct_clamp
+    sensor: cc_l3
+    name: "L3 Current"
+    update_interval: 2s
+    filters:
+      - calibrate_linear:        
+          - 0 -> 0
+          - 1.0 -> 16.0
 
   - platform: template
     name: "PWM Duty"

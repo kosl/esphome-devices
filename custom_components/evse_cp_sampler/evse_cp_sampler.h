@@ -5,6 +5,7 @@
 #include "driver/gpio.h"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_timer.h"
+#include <algorithm>  // for std::sort
 
 namespace esphome {
 namespace evse_cp_sampler {
@@ -31,27 +32,33 @@ class CpSampler : public Component {
   void set_raw_value_trigger(RawValueTrigger *t) { raw_value_trigger_ = t; }
 
  protected:
-  // Hardcoded PWM input pin
   static constexpr gpio_num_t PWM_PIN = GPIO_NUM_10;
-  // Adjust this to match your actual CP ADC channel
   static constexpr adc_channel_t CP_ADC_CHANNEL = ADC_CHANNEL_0;
-  // Decimate and use sparse ADC samples
   static constexpr int DECIMATE_SAMPLES = 10;
 
+  // Median filter settings
+  static constexpr int MEDIAN_WINDOW = 20;
+  int median_buffer_[MEDIAN_WINDOW];
+  int median_index_ = 0;
+  int median_count_ = 0;
+
   int samples_;
-  int sum_raw_;
-  int count_;
-  int prev_state_;
+  int count_ = 0;
+
+  int prev_state_ = -1;
 
   StateChangeTrigger *state_change_trigger_{nullptr};
   RawValueTrigger *raw_value_trigger_{nullptr};
 
   adc_oneshot_unit_handle_t adc_handle_{nullptr};
-  esp_timer_handle_t sample_timer_{nullptr};     // one-shot, 50 us after rising edge
-  esp_timer_handle_t heartbeat_timer_{nullptr};  // periodic heartbeat timer
+  esp_timer_handle_t sample_timer_{nullptr};
+  esp_timer_handle_t heartbeat_timer_{nullptr};
 
   static void IRAM_ATTR timer_callback(void *arg);
   void start_sample_timer();
+
+  // Helper to compute median from circular buffer
+  int compute_median();
 };
 
 inline StateChangeTrigger::StateChangeTrigger(CpSampler *parent) {
@@ -66,4 +73,3 @@ inline RawValueTrigger::RawValueTrigger(CpSampler *parent) {
 
 }  // namespace evse_cp_sampler
 }  // namespace esphome
-
