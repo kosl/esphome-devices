@@ -15,9 +15,11 @@ esp32:
     type: esp-idf
 
 logger:
-  level: INFO
+  level: DEBUG
   logs:
     adc.esp32: ERROR
+    ct_clamp: INFO
+    sensor: INFO
 
 api:
   encryption:
@@ -99,7 +101,7 @@ switch:
     name: "Charging Enabled"
     id: charging_enabled
     optimistic: True
-    restore_mode: RESTORE_DEFAULT_OFF
+    restore_mode: ALWAYS_OFF
     on_state:
       then:
         - script.execute: evse_update_state_script
@@ -133,8 +135,8 @@ evse_cp_sampler:
     samples: 250
     on_raw_value:
       - lambda: |-
-          // ESP_LOGD("evse_cp_sampler", "Raw ADC count: %d", x);
           id(last_raw_adc_count) = x;
+          // ESP_LOGD("evse_cp_sampler", "Raw ADC count: %d", x);         
     on_state_change:
       - lambda: |-
           ESP_LOGD("evse_cp_sampler", "New state: %d", x);
@@ -150,26 +152,31 @@ script:
           const int state = id(evse_state);
           const bool enabled = id(charging_enabled).state;
           const float amps = id(charging_amps).state;
-          int duty = static_cast<int>(amps/0.6);
+          float duty = amps/0.6;
           bool relay_b = false;
           bool relay_c = false;     
 
           switch(state) {
             case 1:
               id(charging_state).publish_state("A (no vehicle)");
-              duty = 100; relay_b = relay_c = false;
+              duty = 100.0; relay_b = relay_c = false;
               break;
             case 2:
               if (enabled) {
                 id(charging_state).publish_state("B1 (charging enabled)");
               } else {
                 id(charging_state).publish_state("B2 (charging disabled)");
-                duty = 100;
+                duty = 100.0;
               } 
               relay_b = true; relay_c = false;
               break;
             case 3:
-                id(charging_state).publish_state("C (charging requested)");
+                if (enabled) {
+                  id(charging_state).publish_state("C1 (charging requested)");
+                } else {
+                  duty = 100.0;
+                  id(charging_state).publish_state("C2 (charging disabled)");
+                }
                 relay_b = relay_c = true;
               break;
             default:
@@ -177,9 +184,9 @@ script:
               return;
           }
           id(cp_ev_in_diag).publish_state(id(last_raw_adc_count));
-          id(cp_ev_out_pwm).set_level(duty); id(pwm_duty).publish_state(duty); 
+          id(cp_ev_out_pwm).set_level(duty/100.0); id(pwm_duty).publish_state(duty); 
           id(cp_ch_out_b_out).set_state(relay_b); id(cp_ch_out_c_out).set_state(relay_c);
-          ESP_LOGI("update_state_script", "State %d, charging %d, %.0f A, duty %d%%, B%d C%d", 
+          ESP_LOGI("update_state_script", "State %d, charging %d, %.0f A, duty %.0f%%, B%d C%d", 
             state, enabled, amps, duty, relay_b, relay_c);
 
 sensor:

@@ -25,7 +25,9 @@ void CpSampler::setup() {
   gpio_isr_handler_add(GPIO_NUM_10, [](void *arg) {
     auto self = static_cast<CpSampler *>(arg);
     self->sample_start_time_ = esp_timer_get_time();
-    self->start_sample_timer();
+    // Restart heartbeat timer (resets its period) so that it will not trigger if under duty cycle
+    esp_timer_restart(self->heartbeat_timer_, 2000);
+    esp_timer_start_once(self->sample_timer_, 20);  // 20 µs delay
   }, this);
   gpio_intr_enable(GPIO_NUM_10);
 
@@ -62,12 +64,6 @@ void CpSampler::setup() {
   adc_sensor_->set_output_raw(true);
 }
 
-void CpSampler::start_sample_timer() {
-  // Restart heartbeat timer (resets its period) so that it will not trigger if under duty cycle
-  esp_timer_restart(heartbeat_timer_, 2000);
-  esp_timer_start_once(sample_timer_, 20);  // 20 µs delay
-}
-
 int CpSampler::compute_median() {
   // Copy buffer to avoid modifying original during sort
   int sorted[MEDIAN_WINDOW];
@@ -91,11 +87,12 @@ void IRAM_ATTR CpSampler::timer_callback(void *arg) {
       return;  // Invalid reading
     }
 
-    if (self->sample_start_time_ != 0) {
-      if (esp_timer_get_time() - self->sample_start_time_ > self->SAMPLE_STALE_TIME_US) {
-        return;  // Too late reading, ignore
+    if (self->sample_start_time_ != 0) { // Is conversion outside 20-85 us sampling window?
+      int64_t elapsed = esp_timer_get_time() - self->sample_start_time_;
+      self->sample_start_time_ = 0;  // Always disable checking for hearbeat samples
+      if (elapsed > self->SAMPLE_STALE_TIME_US) {
+	return;  // Too late, ignore stale sample
       }
-      self->sample_start_time_ = 0;  // Disable checking for heaterbeat samples
     }
 
     // Store in circular buffer
