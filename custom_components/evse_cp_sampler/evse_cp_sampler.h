@@ -57,7 +57,9 @@ class CpSampler : public Component {
   esp_timer_handle_t sample_timer_{nullptr};
   esp_timer_handle_t heartbeat_timer_{nullptr};
 
+  static void IRAM_ATTR gpio_isr_handler(void *arg);
   static void IRAM_ATTR timer_callback(void *arg);
+
   void start_sample_timer();
 
   // Helper to compute median from circular buffer

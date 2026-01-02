@@ -18,19 +18,6 @@ void CpSampler::setup() {
     median_buffer_[i] = 0;
   }
 
-  // PWM GPIO interrupt setup (rising edge on GPIO10)
-  // https://docs.espressif.com/projects/esp-idf/en/latest/esp32c3/api-reference/peripherals/gpio.html
-  gpio_set_intr_type(GPIO_NUM_10, GPIO_INTR_POSEDGE);
-  gpio_install_isr_service(0);
-  gpio_isr_handler_add(GPIO_NUM_10, [](void *arg) {
-    auto self = static_cast<CpSampler *>(arg);
-    self->sample_start_time_ = esp_timer_get_time();
-    // Restart heartbeat timer (resets its period) so that it will not trigger if under duty cycle
-    esp_timer_restart(self->heartbeat_timer_, 2000);
-    esp_timer_start_once(self->sample_timer_, 20);  // 20 µs delay
-  }, this);
-  gpio_intr_enable(GPIO_NUM_10);
-
   // One-shot sampling timer (20 µs after rising edge)
   esp_timer_create_args_t timer_args = {
       .callback = timer_callback,
@@ -51,9 +38,17 @@ void CpSampler::setup() {
   };
   esp_timer_create(&heartbeat_args, &heartbeat_timer_);
 
+  // PWM GPIO interrupt setup (rising edge on GPIO10)
+  // https://docs.espressif.com/projects/esp-idf/en/latest/esp32c3/api-reference/peripherals/gpio.html
+  gpio_set_intr_type(PWM_PIN, GPIO_INTR_POSEDGE);
+  gpio_install_isr_service(0);
+  gpio_isr_handler_add(PWM_PIN, gpio_isr_handler, this);
+  gpio_intr_enable(PWM_PIN);  
+  
   // Start heartbeat (periodic) timer immediately
   esp_timer_start_periodic(heartbeat_timer_, 2000);  // 2000 µs = 500 Hz
 
+  
   // Override some ADC settings for our use case
   if (adc_sensor_ == nullptr) {
     ESP_LOGE(TAG, "ADC Sensor not set in CpSampler!");
@@ -74,6 +69,16 @@ int CpSampler::compute_median() {
   return sorted[MEDIAN_WINDOW / 2];
 }
 
+// This ISR is started by ledc PWM leading edge and schedules single-shot sample shortly after 
+void IRAM_ATTR CpSampler::gpio_isr_handler(void *arg) {
+  auto self = static_cast<CpSampler *>(arg);
+  self->sample_start_time_ = esp_timer_get_time();
+  // Restart heartbeat timer (resets its period) so that it will not trigger if under duty cycle
+  esp_timer_restart(self->heartbeat_timer_, 2000);
+  esp_timer_stop(self->sample_timer_); // Best effort if it is already running then stop it
+  esp_timer_start_once(self->sample_timer_, 20);  // 20 µs delay
+}
+  
 void IRAM_ATTR CpSampler::timer_callback(void *arg) {
   auto self = static_cast<CpSampler *>(arg);
   if (self->adc_sensor_ == nullptr) {
