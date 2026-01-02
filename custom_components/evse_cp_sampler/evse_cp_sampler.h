@@ -2,8 +2,8 @@
 
 #include "esphome/core/component.h"
 #include "esphome/core/automation.h"
+#include "esphome/components/adc/adc_sensor.h"
 #include "driver/gpio.h"
-#include "esp_adc/adc_oneshot.h"
 #include "esp_timer.h"
 #include <algorithm>  // for std::sort
 
@@ -27,13 +27,14 @@ class CpSampler : public Component {
   void setup() override;
   void dump_config() override;
 
+  void set_adc(adc::ADCSensor *adc_comp) { adc_sensor_ = adc_comp; }
   void set_samples(int s) { samples_ = s; }
   void set_state_change_trigger(StateChangeTrigger *t) { state_change_trigger_ = t; }
   void set_raw_value_trigger(RawValueTrigger *t) { raw_value_trigger_ = t; }
 
  protected:
+  adc::ADCSensor *adc_sensor_{nullptr};
   static constexpr gpio_num_t PWM_PIN = GPIO_NUM_10;
-  static constexpr adc_channel_t CP_ADC_CHANNEL = ADC_CHANNEL_0;
   static constexpr int DECIMATE_SAMPLES = 10;
 
   // Median filter settings
@@ -45,12 +46,14 @@ class CpSampler : public Component {
   int samples_;
   int count_ = 0;
 
+  int64_t sample_start_time_{0};
+  static constexpr int64_t SAMPLE_STALE_TIME_US = 83; // 83us for 8.3% duty cycle at 1kHz
+
   int prev_state_ = -1;
 
   StateChangeTrigger *state_change_trigger_{nullptr};
   RawValueTrigger *raw_value_trigger_{nullptr};
 
-  adc_oneshot_unit_handle_t adc_handle_{nullptr};
   esp_timer_handle_t sample_timer_{nullptr};
   esp_timer_handle_t heartbeat_timer_{nullptr};
 

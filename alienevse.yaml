@@ -5,8 +5,8 @@ esphome:
       - output.turn_on: cp_ev_out_pwm
       - output.set_level:
           id: cp_ev_out_pwm
-          level: "10%"
-      - output.turn_on: cp_ch_out_b_out
+          level: "100%"
+      - output.turn_off: cp_ch_out_b_out
       - output.turn_off: cp_ch_out_c_out
 
 esp32:
@@ -15,7 +15,9 @@ esp32:
     type: esp-idf
 
 logger:
-  level: DEBUG
+  level: INFO
+  logs:
+    adc.esp32: ERROR
 
 api:
   encryption:
@@ -84,29 +86,10 @@ output:
     frequency: 1000Hz # default
 
 globals:
-  - id: evse_charging_enabled
-    type: bool
-    restore_value: true
-    initial_value: "false"
+  - id: last_raw_adc_count
+    type: int
 
-  - id: evse_charging_amps
-    type: float
-    restore_value: true
-    initial_value: "6.0"
-
-  - id: evse_pwm_duty_pct
-    type: float
-    initial_value: "0.0"
-  
-  - id: evse_ch_b
-    type: bool
-    initial_value: "false"
-
-  - id: evse_ch_c
-    type: bool
-    initial_value: "false"
-
-  # 0=unknown, 1=A, 2=B, 3=C
+  # 0=unknown, 1=A, 2=B, 3=C, 4=D
   - id: evse_state
     type: int
     initial_value: "1"
@@ -115,15 +98,11 @@ switch:
   - platform: template
     name: "Charging Enabled"
     id: charging_enabled
+    optimistic: True
     restore_mode: RESTORE_DEFAULT_OFF
-    lambda: |-
-      return id(evse_charging_enabled);
-    turn_on_action:
-      - lambda: |-
-          id(evse_charging_enabled) = true;
-    turn_off_action:
-      - lambda: |-
-          id(evse_charging_enabled) = false;
+    on_state:
+      then:
+        - script.execute: evse_update_state_script
 
 number:
   - platform: template
@@ -132,76 +111,76 @@ number:
     min_value: 6
     max_value: 16
     step: 1
+    restore_value: True
     mode: slider
-    lambda: |-
-      return id(evse_charging_amps);
-    set_action:
-      - lambda: |-
-          id(evse_charging_amps) = x;
+    optimistic: True
+    on_value: 
+      then:     
+        - script.execute: evse_update_state_script
 
 text_sensor:
   - platform: template
     id: charging_state
-    name: "Charging State"
+    name: "State"
     entity_category: diagnostic
-    lambda: |-
-      switch (id(evse_state)) {
-        case 1: return std::string{"A Standby (EVSE ready, vehicle not connected)"};
-        case 2: return std::string{"B Vehicle detected (connected, not charging)"};
-        case 3: return std::string{"C Charging (energy flowing / charging sequence)"};
-        default: return std::string{"Unknown"};
-      }
     update_interval: never
 
 # Control Pilot voltage sampling at ADC at GPIO0 occurs 20 µs after PWM (ledc at GPIO10) rising edge
 # Heartbeat sampling at 500 Hz in DC mode (when PWM is disabled) 
 evse_cp_sampler:
     id: cp_sampler
+    sample_adc: cp_ev_in
     samples: 250
     on_raw_value:
       - lambda: |-
-          ESP_LOGD("evse_cp_sampler", "CP Sampler Average raw ADC value: %d", x);
-          id(cp_ev_in_diag).publish_state(x);
+          // ESP_LOGD("evse_cp_sampler", "Raw ADC count: %d", x);
+          id(last_raw_adc_count) = x;
     on_state_change:
       - lambda: |-
-          const int state = x;
-          id(evse_state) = state;
-          id(charging_state).update();
-          if(state == 0) return; // ????
-          bool ch_b, ch_c;
-          float pwm_pct;
-          if(state == 1) {
-            ch_b = false;
-            ch_c = false;
-            pwm_pct = 100.0f;
-          } else if(state == 2) {
-            ch_b = true;
-            ch_c = false;
-            pwm_pct = id(evse_charging_enabled) ? (id(evse_charging_amps) / 0.6f) : 100.0f;
-          } else /* state == 3 */ {
-            ch_b = true;
-            ch_c = true;
-            pwm_pct = id(evse_charging_enabled) ? (id(evse_charging_amps) / 0.6f) : 100.0f;
-          }
-          if(pwm_pct < 0.0f) pwm_pct = 0.0f;
-          if(pwm_pct > 100.0f) pwm_pct = 100.0f;
+          ESP_LOGD("evse_cp_sampler", "New state: %d", x);
+          id(evse_state) = x;
+      - script.execute: evse_update_state_script
 
-          if(ch_b != id(evse_ch_b)) {
-            ESP_LOGI("evse", "Setting CH B to %s", ch_b ? "HIGH" : "LOW");
-            id(cp_ch_out_b_out).set_state(ch_b);
-            id(evse_ch_b) = ch_b;
-          }
-          if(ch_c != id(evse_ch_c)) {
-            ESP_LOGI("evse", "Setting CH C to %s", ch_c ? "HIGH" : "LOW");
-            id(cp_ch_out_c_out).set_state(ch_c);
-            id(evse_ch_c) = ch_c;
-          }
-          if(fabsf(pwm_pct - id(evse_pwm_duty_pct)) >= 0.05f) {
-            ESP_LOGI("evse", "Setting PWM duty to %.1f%%", pwm_pct);
-            id(cp_ev_out_pwm).set_level(pwm_pct / 100.0f);
-            id(evse_pwm_duty_pct) = pwm_pct;
-          }
+script:
+  - id: evse_update_state_script
+    mode: queued  # or 'single' / 'restart' depending on your needs
+    then:
+      # Calculate target values based on state
+      - lambda: |-
+          const int state = id(evse_state);
+          const bool enabled = id(charging_enabled).state;
+          const float amps = id(charging_amps).state;
+          int duty = static_cast<int>(amps/0.6);
+          bool relay_b = false;
+          bool relay_c = false;     
 
+          switch(state) {
+            case 1:
+              id(charging_state).publish_state("A (no vehicle)");
+              duty = 100; relay_b = relay_c = false;
+              break;
+            case 2:
+              if (enabled) {
+                id(charging_state).publish_state("B1 (charging enabled)");
+              } else {
+                id(charging_state).publish_state("B2 (charging disabled)");
+                duty = 100;
+              } 
+              relay_b = true; relay_c = false;
+              break;
+            case 3:
+                id(charging_state).publish_state("C (charging requested)");
+                relay_b = relay_c = true;
+              break;
+            default:
+              ESP_LOGE("update_state_script", "State %d occured");
+              return;
+          }
+          id(cp_ev_in_diag).publish_state(id(last_raw_adc_count));
+          id(cp_ev_out_pwm).set_level(duty); id(pwm_duty).publish_state(duty); 
+          id(cp_ch_out_b_out).set_state(relay_b); id(cp_ch_out_c_out).set_state(relay_c);
+          ESP_LOGI("update_state_script", "State %d, charging %d, %.0f A, duty %d%%, B%d C%d", 
+            state, enabled, amps, duty, relay_b, relay_c);
 
 sensor:
   # - platform: adc
@@ -221,101 +200,60 @@ sensor:
   #   filters:
   #     - throttle: 1s
     
-  # - platform: adc
-  #   id: cp_ev_in
-  #   pin: GPIO0
-  #   attenuation: 12db
-  #   raw: true
-  #   update_interval: never
-  #   internal: true
-
+  - platform: adc
+    id: cp_ev_in
+    pin: GPIO0
+    attenuation: 12db
+    internal: True
+    update_interval: never
 
   - platform: template
-    name: "Vehicle CP"
+    name: "Vehicle CP ADC"
     id: cp_ev_in_diag
     unit_of_measurement: "counts" 
     entity_category: diagnostic 
-    filters:
-      - throttle: 10s
+    update_interval: never
 
-  # - platform: copy
-  #   id: cp_ev_in_state
-  #   source_id: cp_ev_in
-  #   internal: true
-  #   filters:
-  #     - lambda: |-
-  #         if (x == 4095.0f) return 1;
-  #         else if (fabsf(x - 3200.0f) < 100.0f) return 3;
-  #         else if (fabsf(x - 3650.0f) < 100.0f) return 2;
-  #         else return 0;
-  #     - filter_out: 0
-  #   on_value:
-  #     then:
-  #       - lambda: |-
-  #           const int new_state = (int)x;
-  #           if(id(evse_state) == new_state) {
-  #             return;
-  #           }
-  #           ESP_LOGI("evse", "Detected candidate state: %d", new_state);
-  #           if(id(evse_candidate_count) == 0) {
-  #             ESP_LOGI("evse", "Starting candidate state tracking: %d", new_state);
-  #             id(evse_candidate_state) = new_state;
-  #             id(evse_candidate_count) = 1;
-  #             return;
-  #           }
-  #           if(new_state == id(evse_candidate_state)) {
-  #             ESP_LOGI("evse", "Incrementing candidate state count: %d", id(evse_candidate_count) + 1);
-  #             id(evse_candidate_count) += 1;
-  #           } else {
-  #             ESP_LOGI("evse", "Resetting candidate state to: %d", new_state);
-  #             id(evse_candidate_state) = new_state;
-  #             id(evse_candidate_count) = 1;
-  #           }
-  #           if(id(evse_candidate_count) > 3) {
-  #             ESP_LOGI("evse", "Committing to new state: %d", new_state);
-  #             id(evse_state) = new_state;
-  #             id(evse_candidate_count) = 0;
-  #           }
+  # =========== Current sensors ===========
 
   - platform: adc
     id: cc_l1
     pin: GPIO2
-    update_interval: never
-    internal: True
+    attenuation: 12db
   - platform: ct_clamp
     sensor: cc_l1
     name: "L1 Current"
     update_interval: 2s
-    filters:
-      - calibrate_linear:        
-          - 0 -> 0
-          - 1.0 -> 16.0
+    # filters:
+    #   - calibrate_linear:        
+    #       - 0 -> 0
+    #       - 1.0 -> 16.0
   - platform: adc
     id: cc_l2
     pin: GPIO3
-    update_interval: never
-    internal: True
+    attenuation: 12db
   - platform: ct_clamp
     sensor: cc_l2
     name: "L2 Current"
     update_interval: 2s
-    filters:
-      - calibrate_linear:        
-          - 0 -> 0
-          - 1.0 -> 16.0
+    # filters:
+    #   - calibrate_linear:        
+    #       - 0 -> 0
+    #       - 1.0 -> 16.0
   - platform: adc
     id: cc_l3
     pin: GPIO4
-    update_interval: never
-    internal: True
+    attenuation: 12db
   - platform: ct_clamp
     sensor: cc_l3
     name: "L3 Current"
     update_interval: 2s
-    filters:
-      - calibrate_linear:        
-          - 0 -> 0
-          - 1.0 -> 16.0
+    # filters:
+    #   - calibrate_linear:        
+    #       - 0 -> 0
+    #       - 1.0 -> 16.0
+
+  # =========== Diagnostic sensors ===========
 
   - platform: template
     name: "PWM Duty"
@@ -323,9 +261,7 @@ sensor:
     unit_of_measurement: "%"
     accuracy_decimals: 1
     entity_category: diagnostic
-    lambda: |-
-      return id(evse_pwm_duty_pct);
-    update_interval: 10s
+    update_interval: never
 
   - platform: wifi_signal
     name: "WiFi Signal Strength"
@@ -335,13 +271,13 @@ sensor:
     accuracy_decimals: 0
     device_class: signal_strength
     entity_category: diagnostic 
- 
 
+interval:
+  - interval: 60s
+    then:
+      - lambda: |-
+          id(cp_ev_in_diag).publish_state(id(last_raw_adc_count));
 
-
-# interval:
-#   - interval: 0us
-#     then:
 button:
   - platform: restart
     name: Reboot
