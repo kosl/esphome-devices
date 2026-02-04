@@ -233,26 +233,26 @@ sensor:
   #   accuracy_decimals: 2
   #   device_id: ${energy_meter_device_id}
 
-  - platform: template
-    name: "Phase A Current"
-    id: a_current_sensor
-    unit_of_measurement: "A"
-    accuracy_decimals: 3
-    device_id: ${energy_meter_device_id}
+  # - platform: template
+  #   name: "Phase A Current"
+  #   id: a_current_sensor
+  #   unit_of_measurement: "A"
+  #   accuracy_decimals: 3
+  #   device_id: ${energy_meter_device_id}
       
-  - platform: template
-    name: "Phase B Current"
-    id: b_current_sensor
-    unit_of_measurement: "A"
-    accuracy_decimals: 3
-    device_id: ${energy_meter_device_id}
+  # - platform: template
+  #   name: "Phase B Current"
+  #   id: b_current_sensor
+  #   unit_of_measurement: "A"
+  #   accuracy_decimals: 3
+  #   device_id: ${energy_meter_device_id}
   
-  - platform: template
-    name: "Phase C Current"
-    id: c_current_sensor
-    unit_of_measurement: "A"
-    accuracy_decimals: 3
-    device_id: ${energy_meter_device_id}
+  # - platform: template
+  #   name: "Phase C Current"
+  #   id: c_current_sensor
+  #   unit_of_measurement: "A"
+  #   accuracy_decimals: 3
+  #   device_id: ${energy_meter_device_id}
   
   - platform: template
     name: "Phase A Active Power"
@@ -361,70 +361,70 @@ sensor:
     device_id: ${energy_meter_device_id}
     
   # =========== Current sensors ===========
-  # - platform: adc
-  #   id: cc_l1
-  #   pin:
-  #     number: GPIO2
-  #     ignore_strapping_warning: true 
-  #   attenuation: 6db
-  # - platform: ct_clamp
-  #   sensor: cc_l1
-  #   name: "Phase A Current"
-  #   id: a_current_sensor
-  #   unit_of_measurement: "A"
-  #   accuracy_decimals: 3
-  #   device_id: ${energy_meter_device_id}
-  #   update_interval: ${ct_update_interval}    
-  #   filters:
-  #     - median:
-  #     - calibrate_linear:
-  #         method: exact
-  #         datapoints:
-  #          - 0.0390 -> 0.0
-  #          - 0.0630 -> 5.0
-  #          - 0.1184 -> 11.0
-  #          - 0.1665 -> 16.0
-  #     - clamp:
-  #         min_value: 0.0
-  # - platform: adc
-  #   id: cc_l2
-  #   pin: GPIO3
-  #   attenuation: 6db
-  # - platform: ct_clamp
-  #   sensor: cc_l2
-  #   name: "Phase B Current"
-  #   id: b_current_sensor
-  #   device_id: ${energy_meter_device_id}    
-  #   update_interval: ${ct_update_interval}
-  #   filters:
-  #     - median
-  #     - calibrate_linear:
-  #         method: exact
-  #         datapoints:
-  #          - 0.0380 -> 0.0
-  #          - 0.0611 -> 5.0
-  #          - 0.1167 -> 11.0
-  #          - 0.1646 -> 16.0
-  #     - clamp:
-  #         min_value: 0.0
-  # - platform: adc
-  #   id: cc_l3
-  #   pin: GPIO4
-  #   attenuation: 6db
-  # - platform: ct_clamp
-  #   sensor: cc_l3
-  #   name: "Phase C Current"
-  #   device_id: ${energy_meter_device_id}    
-  #   id: c_current_sensor
-  #   update_interval: ${ct_update_interval}
-  #   filters:
-  #     - median
-  #     - calibrate_linear:
-  #         method: exact
-  #         datapoints:
-  #          - 0.0380 -> 0.0
-  #          - 0.0607 -> 5.0
-  #          - 0.1160 -> 11.0
-  #          - 0.1644 -> 16.0
-  #     - clamp:
-  #         min_value: 0.0
+  - platform: adc
+    id: cc_l1
+    pin:
+      number: GPIO2
+      ignore_strapping_warning: true 
+    attenuation: 6db
+  - platform: ct_clamp
+    sensor: cc_l1
+    name: "Phase A Current"
+    id: a_current_sensor
+    unit_of_measurement: "A"
+    accuracy_decimals: 3
+    device_id: ${energy_meter_device_id}
+    update_interval: ${ct_update_interval}    
+    filters:
+      - median:
+      - calibrate_linear:
+          method: exact
+          datapoints:
+           - 0.0390 -> 0.0
+           - 0.0630 -> 5.0
+           - 0.1184 -> 11.0
+           - 0.1665 -> 16.0
+      - clamp:
+          min_value: 0.0
+  - platform: adc
+    id: cc_l2
+    pin: GPIO3
+    attenuation: 6db
+  - platform: ct_clamp
+    sensor: cc_l2
+    name: "Phase B Current"
+    id: b_current_sensor
+    device_id: ${energy_meter_device_id}    
+    update_interval: ${ct_update_interval}
+    filters:
+      - median
+      - calibrate_linear:
+          method: exact
+          datapoints:
+           - 0.0380 -> 0.0
+           - 0.0611 -> 5.0
+           - 0.1167 -> 11.0
+           - 0.1646 -> 16.0
+      - clamp:
+          min_value: 0.0
+  - platform: adc
+    id: cc_l3
+    pin: GPIO4
+    attenuation: 6db
+  - platform: ct_clamp
+    sensor: cc_l3
+    name: "Phase C Current"
+    device_id: ${energy_meter_device_id}    
+    id: c_current_sensor
+    update_interval: ${ct_update_interval}
+    filters:
+      - median
+      - calibrate_linear:
+          method: exact
+          datapoints:
+           - 0.0380 -> 0.0
+           - 0.0607 -> 5.0
+           - 0.1160 -> 11.0
+           - 0.1644 -> 16.0
+      - clamp:
+          min_value: 0.0

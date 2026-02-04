@@ -413,7 +413,7 @@ private:
     }
 
     void continue_receiving() {
-        uint8_t buffer[32];  // Smaller buffer for faster processing
+        uint8_t buffer[64];  // Smaller buffer for faster processing
         int received = ::recv(socket_, buffer, sizeof(buffer), MSG_DONTWAIT);
         
         if (received > 0) {
