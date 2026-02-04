@@ -7,17 +7,20 @@ substitutions:
   charging_amps_max: "16"
   board: "esp32-c3-devkitm-1"
   variant: "ESP32C3"
+  ble_presence_timeout: 15s
+  tesla_ble_component: "github://PedroKTFC/esphome-tesla-ble@repair"
+  BLE_library: "https://github.com/PedroKTFC/tesla-ble.git#repair"
+  
+logger:
+  level: INFO
 
 wifi:
-  output_power: 10.5dB
+  output_power: 8.5dB # Minimise self interference
   ssid: !secret wifi_eteradxa_ssid
-  password: !secret wifi_eteradxa_password
-
-  # Enhanced reconnect behavior
-  reboot_timeout: 15min  # Reboot if no connection after 15 minutes
+  password: !secret wifi_password  
   power_save_mode: none  # Better reliability over power saving
 
-    # Enable fallback hotspot (captive portal) in case wifi connection fails
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
     ssid: "Tesla-BLE Fallback Hotspot"
     password: "40oVQAvheesN"
@@ -27,11 +30,19 @@ api:
   encryption:
     key: !secret api_encryption_key # use "key: !secret your_secret_key_name" for greater security
 
+#packages:
+#  base:  github://PedroKTFC/esphome-tesla-ble/packages/base.yml
+#  common: github://PedroKTFC/esphome-tesla-ble/packages/common.yml #@dev
+#  project: github://PedroKTFC/esphome-tesla-ble/packages/project.yml
+#  client: github://PedroKTFC/esphome-tesla-ble/packages/client.yml #@dev
+
 packages:
-  base:  github://PedroKTFC/esphome-tesla-ble/packages/base.yml
-  common: github://PedroKTFC/esphome-tesla-ble/packages/common.yml
-  project: github://PedroKTFC/esphome-tesla-ble/packages/project.yml
-  client: github://PedroKTFC/esphome-tesla-ble/packages/client.yml
+  remote_package_files:
+    url: https://github.com/PedroKTFC/esphome-tesla-ble/
+    path: packages
+    files: [base.yml, common.yml, project.yml, client.yml]
+    ref: repair
+
   # listener: github://PedroKTFC/esphome-tesla-ble/packages/listener.yml # Uncomment this to scan find your VIN BLE MAC address
 
 # The following shows how to change the name of a sensor and how to change any of the parameters.

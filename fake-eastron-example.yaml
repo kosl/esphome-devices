@@ -1,0 +1,303 @@
+# Energy meter example 
+
+esphome:
+  name: energy-meter
+  friendly_name: Deye bridge for SDM630
+  min_version: 2026.1.0 
+  devices: # https://esphome.io/components/esphome/#sub-devices
+    - id: device_energy_meter
+      name: "Eastron SDM 630 (fake meter)"
+
+esp32:
+  board: esp32-c3-devkitc-02
+  framework:
+    type: esp-idf
+
+# Enable logging
+logger:
+  level: DEBUG
+  logs:
+    modbus_tcp_manager: DEBUG
+
+
+api: # Enable Home Assistant API
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  output_power: 8.5dB
+  power_save_mode: none  # Better reliability over power saving  
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Deye Fallback Hotspot"
+    password: !secret wifi_password
+
+captive_portal:
+
+external_components:
+  - source: github://Gucioo/esphome_modbus_tcp_master@slow-async
+    components: [modbus_tcp_manager]
+    refresh: 0s  # Always use latest version during development
+
+# Single connection manager for the Modbus device
+modbus_tcp_manager:
+  id: modbus_device
+  host: "192.168.1.31"  # IP address of your Modbus TCP server
+  port: 502              # Default Modbus TCP port
+  unit_id: 1             # Modbus unit/slave ID
+  connection_timeout: 3s
+  read_timeout: 3s
+
+# Connection status monitoring
+# binary_sensor:
+#   - platform: modbus_tcp_manager
+#     modbus_tcp_id: modbus_device
+#     name: "Modbus Connection Status"
+#     device_class: connectivity
+#     lambda: |-
+#        auto *modbus = id(modbus_device);
+#        return (modbus != nullptr) && modbus->is_connected();
+
+binary_sensor:
+  - platform: template
+    name: "Modbus Connection"
+    id: modbus_connection
+    device_class: connectivity
+    lambda: |-
+      auto *modbus = id(modbus_device);
+      return (modbus != nullptr) && modbus->is_connected();
+
+uart:
+  # GPIO20 - RX to RXD of top RS485 module
+  # GPIO21 - TX to TXD of top RS485 module
+  - id: uart_meter
+    tx_pin: GPIO21
+    rx_pin: GPIO20 
+    baud_rate: 9600
+    debug:
+      direction: BOTH
+  # GPIO6 - RX to RXD of middle RS485 module
+  # GPIO5 - TX to TXD of middle RS485 module
+  - id: uart_master
+    rx_pin: GPIO6
+    tx_pin: GPIO5
+    baud_rate: 9600 #if your energy meter is SDM230M or SDM120M than change the baud_rate: 2400
+    stop_bits: 1      
+modbus:
+  - id: modbus_eastron
+    uart_id: uart_meter
+    role: server # https://esphome.io/components/modbus_controller/#example-server
+  - id: modbus_master
+    uart_id: uart_master
+
+# Include packages for Eastron
+packages:
+   energy_meter: !include
+     file: fake-eastron.yaml
+     vars:
+       ct_update_interval: 5s
+       energy_meter_device_id: device_energy_meter
+
+
+# Example configuration entry
+sensor:
+  - platform: sdm_meter
+    modbus_id: modbus_master
+    update_interval: 10s    
+    address: 1
+    phase_a:
+      current:
+        name: "SDM230M Current"
+      voltage:
+        name: "SDM230M Voltage"
+      active_power:
+        name: "SDM230M Power"
+      power_factor:
+        name: "SDM230M Power Factor"
+      apparent_power:
+        name: "SDM230M Apparent Power"
+      reactive_power:
+        name: "SDM230M Reactive Power"
+      phase_angle:
+        name: "SDM230M Phase Angle"
+    frequency:
+      name: "SDM230M Frequency"
+    total_power:
+      name: "SDM230M Total Power"
+    import_active_energy:
+      name: "SDM230M Import Active Energy"
+    export_active_energy:
+      name: "SDM230M Export Active Energy"
+
+# Read Solaredge
+  # - platform: modbus_tcp_manager
+  #   modbus_tcp_id: modbus_device
+  #   name: "Solaredge AC Phase A Current value"
+  #   device_class: current
+  #   unit_of_measurement: "A"
+  #   accuracy_decimals: 2
+  #   register_address: 40072
+  #   function_code: 3
+  #   scale: 0.01
+  #   update_interval: 10s
+  # - platform: modbus_tcp_manager
+  #   modbus_tcp_id: modbus_device
+  #   name: "Solaredge AC Phase B Current value"
+  #   device_class: current
+  #   unit_of_measurement: "A"
+  #   accuracy_decimals: 2
+  #   register_address: 40073
+  #   scale: 0.01
+  #   function_code: 3
+  #   update_interval: 10s 
+
+  # - platform: modbus_tcp_manager
+  #   modbus_tcp_id: modbus_device
+  #   name: "Solaredge Grid Voltage L-N Phase A"
+  #   device_class: voltage
+  #   unit_of_measurement: "V"
+  #   accuracy_decimals: 1
+  #   icon: "mdi:alpha-v-circle-outline"
+  #   register_address: 40079
+  #   function_code: 3
+  #   update_interval: 3s
+  # - platform: modbus_tcp_manager
+  #   modbus_tcp_id: modbus_device
+  #   name: "Solaredge AC Phase C Current value"
+  #   device_class: current
+  #   unit_of_measurement: "A"
+  #   accuracy_decimals: 1
+  #   register_address: 40074
+  #   function_code: 3
+  #   update_interval: 10s    
+  # - platform: modbus_tcp_manager
+  #   modbus_tcp_id: modbus_device
+  #   name: "Solaredge Meter 1 Phase A AC Current"
+  #   device_class: current
+  #   unit_of_measurement: "A"
+  #   accuracy_decimals: 1
+  #   register_address: 40191              # Common base-0; try 40080 if this reads 0/NaN
+  #   function_code: 3
+  #   scale: 1
+  #   update_interval: 10s
+
+
+# Individual sensors updated by async callbacks
+#sensor:
+  - platform: template
+    name: "Register 37000"
+    id: reg_37000_sensor
+    unit_of_measurement: ""
+    accuracy_decimals: 0
+
+  - platform: template
+    name: "Register 37001"
+    id: reg_37001_sensor
+    unit_of_measurement: ""
+    accuracy_decimals: 0
+
+  - platform: template
+    name: "Register 37002"
+    id: reg_37002_sensor
+    unit_of_measurement: ""
+    accuracy_decimals: 0
+
+  - platform: template
+    name: "Register 37003"
+    id: reg_37003_sensor
+    unit_of_measurement: ""
+    accuracy_decimals: 0
+
+
+  # =========== Diagnostic sensors ===========
+#sensor:
+  - platform: wifi_signal
+    name: "WiFi Signal Strength"
+    id: wifi_rssi
+    update_interval: 1min  
+    unit_of_measurement: "dBm"
+    accuracy_decimals: 0
+    device_class: signal_strength
+    entity_category: diagnostic 
+
+# Enable built-in status LED on GPIO8
+light:
+  - platform: status_led
+    id: esp_status_led
+    pin:
+      number: GPIO8
+      inverted: true
+      ignore_strapping_warning: true
+    entity_category: diagnostic      
+
+# Text sensor showing all values
+text_sensor:
+  - platform: template
+    name: "Registers 37000-37003"
+    id: all_registers_status
+    lambda: |-
+      return {"Async operations active"};
+
+# **TRUE ASYNC**: 5-second interval with instant return
+interval:
+  - interval: 5s  # Your requested 5-second updates!
+    then:
+      - lambda: |-
+          auto *modbus = id(modbus_device);
+          if (modbus == nullptr || !modbus->is_connected()) {
+            ESP_LOGD("async", "Modbus not connected");
+            return;
+          }
+          
+          ESP_LOGI("async", "Starting 5-second async read (returns instantly!)");
+          
+          // **CRITICAL**: This call returns IMMEDIATELY - no blocking!
+          modbus->read_registers_async(40195, 4, 
+            esphome::modbus_tcp::ModbusFunction::READ_HOLDING_REGISTERS,
+            [](const esphome::modbus_tcp::ModbusResponse& response) {
+              // This callback runs when data arrives (maybe 3 seconds later)
+              if (response.success && response.data.size() == 4) {
+                // Update all sensors from callback
+                id(reg_37000_sensor).publish_state(static_cast<int16_t>(response.data[0]));
+                id(reg_37001_sensor).publish_state(static_cast<int16_t>(response.data[1]));
+                id(reg_37002_sensor).publish_state(static_cast<int16_t>(response.data[2]));
+                id(reg_37003_sensor).publish_state(static_cast<int16_t>(response.data[3]));
+                
+                // Update text sensor too
+                std::string result = "37000:" + to_string(static_cast<int16_t>(response.data[0])) + 
+                                   " 37001:" + to_string(static_cast<int16_t>(response.data[1])) + 
+                                   " 37002:" + to_string(static_cast<int16_t>(response.data[2])) + 
+                                   " 37003:" + to_string(static_cast<int16_t>(response.data[3]));
+                id(all_registers_status).publish_state(result);
+                
+                ESP_LOGI("async", "5-second async read completed: %s", result.c_str());
+              } else {
+                ESP_LOGW("async", "5-second async read failed: %s", response.error_message.c_str());
+                id(all_registers_status).publish_state("Read Failed: " + response.error_message);
+              }
+            });
+          
+          // **EXECUTION CONTINUES HERE IMMEDIATELY**
+          // ESPHome is free to do other things while Modbus works in background
+          ESP_LOGI("async", "Async request queued - ESPHome continues running!");
+ # Connection status update
+  - interval: 10s
+    then:
+      - lambda: |-
+          auto *connection_sensor = id(modbus_connection);
+          auto *modbus = id(modbus_device);
+          if (connection_sensor && modbus) {
+            bool connected = modbus->is_connected();
+            connection_sensor->publish_state(connected);
+          }
+  # Health monitoring (without WiFi check to avoid compilation issues)
+  # - interval: 30s
+  #   then:
+  #     - lambda: |-
+  #         ESP_LOGI("health", "System Health: Heap=%d Modbus=%s", 
+  #                  esp_get_free_heap_size(),
+  #                  id(slow_modbus_device)->is_connected() ? "OK" : "FAIL");

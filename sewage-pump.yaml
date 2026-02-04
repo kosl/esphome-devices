@@ -90,6 +90,10 @@ globals:
     type: int
     restore_value: false
     initial_value: '0'
+  - id: water_tank_samples
+    type: int
+    restore_value: false
+    initial_value: '0'
 
 
 
@@ -183,11 +187,11 @@ sensor:
     model: jsn_sr04t
     uart_id: uart_0
     filters:
-      - timeout: 5min
       - clamp:
           min_value: 0.1
           max_value: 1.9
           ignore_out_of_range: true
+      - timeout: 5min
       - calibrate_linear:
           # Format: sensor reading -> actual measured distance
           datapoints:  # JSN-SR04T module calibration:
@@ -281,9 +285,12 @@ sensor:
             args:
               - id(distance_sensor).state
               - id(distance_samples)
+        - sensor.template.publish:
+            id: distance_samples_sensor
+            state: !lambda 'return id(distance_samples);'
         - globals.set:
-                id: distance_samples
-                value: '0'
+              id: distance_samples
+              value: '0'      
     on_raw_value:
       then:
         - lambda: |-
@@ -294,6 +301,15 @@ sensor:
             args:
               - id(distance_sensor).raw_state
               - id(distance_samples)
+  - platform: template
+    name: "Distance Samples"
+    id: distance_samples_sensor
+    unit_of_measurement: "count"
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    update_interval: never
+    lambda: |-
+      return id(distance_samples);
   # Second  sensor 
   - platform: jsn_sr04t
     id: distance_sensor_2
@@ -308,8 +324,8 @@ sensor:
           max_value: 1.8
           ignore_out_of_range: true
       - median:
-          window_size: 51
-          send_every: 50
+          window_size: 11
+          send_every: 5
           send_first_at: 5
       # Sensor shows 1.451 m when totaly empty and that is 1.777 m from the top
       # Max height is 0.333 m sensor reading. However, it lowered to 0.358 m due to some leackage
@@ -318,6 +334,40 @@ sensor:
       # 1.451 -> 1.777
       # 1.242 -> 1.525
       # 0.358 -> 0.618
+    on_value:
+      then:
+        - logger.log:
+            tag: distance
+            level: INFO
+            format: "Water tank level (m): %.3f, required %d samples"
+            args:
+              - id(distance_sensor_2).state
+              - id(water_tank_samples)
+        - sensor.template.publish:
+            id: water_tank_samples_sensor
+            state: !lambda 'return id(water_tank_samples);'
+        - globals.set:
+            id: water_tank_samples
+            value: '0'
+    on_raw_value:
+      then:
+        - lambda: |-
+            id(water_tank_samples)++;
+        # - logger.log:
+        #     tag: distance
+        #     format: "Raw Water tank distance (m): %.3f, count: %d"
+        #     args:
+        #       - id(distance_sensor_2).raw_state
+        #       - id(water_tank_samples)    
+  - platform: template
+    name: "Water Tank Samples"
+    id: water_tank_samples_sensor
+    unit_of_measurement: "count"
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    update_interval: never
+    lambda: |-
+      return id(water_tank_samples);
 
   - platform: template
     name: "Last Pumping Duration"

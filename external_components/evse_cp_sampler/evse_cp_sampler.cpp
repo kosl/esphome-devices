@@ -76,7 +76,7 @@ void IRAM_ATTR CpSampler::gpio_isr_handler(void *arg) {
   // Restart heartbeat timer (resets its period) so that it will not trigger if under duty cycle
   esp_timer_restart(self->heartbeat_timer_, 2000);
   esp_timer_stop(self->sample_timer_); // Best effort if it is already running then stop it
-  esp_timer_start_once(self->sample_timer_, 20);  // 20 µs delay
+  esp_timer_start_once(self->sample_timer_, 10);  // 10 µs delay
 }
   
 void IRAM_ATTR CpSampler::timer_callback(void *arg) {

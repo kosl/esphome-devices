@@ -1,0 +1,122 @@
+#include "evse_cp_sampler.h"
+#include "esphome/core/log.h"
+
+namespace esphome {
+namespace evse_cp_sampler {
+
+static const char *const TAG = "evse_cp_sampler";
+
+void CpSampler::setup() {
+  sum_raw_ = 0;
+  count_ = 0;
+  prev_state_ = -1;
+
+  // Configure PWM input pin (hardcoded GPIO10)
+  gpio_config_t io_conf{};
+  io_conf.intr_type = GPIO_INTR_POSEDGE;
+  io_conf.mode = GPIO_MODE_INPUT;
+  io_conf.pin_bit_mask = 1ULL << PWM_PIN;
+  io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+  io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+  gpio_config(&io_conf);
+
+  // Install ISR service and attach rising-edge interrupt
+  gpio_install_isr_service(ESP_INTR_FLAG_IRAM);
+  gpio_isr_handler_add(PWM_PIN, gpio_isr_handler, this);
+
+  // ADC initialization
+  adc_oneshot_unit_init_cfg_t unit_cfg = {
+      .unit_id = ADC_UNIT_1,
+  };
+  adc_oneshot_new_unit(&unit_cfg, &adc_handle_);
+
+  adc_oneshot_chan_cfg_t chan_cfg = {
+      // As requested:
+      .atten = ADC_ATTEN_DB_12,
+      .bitwidth = ADC_BITWIDTH_12,
+  };
+  adc_oneshot_config_channel(adc_handle_, CP_ADC_CHANNEL, &chan_cfg);
+
+  // Create one-shot sample timer (50 µs after rising edge)
+  const esp_timer_create_args_t sample_args = {
+      .callback = &CpSampler::sample_timer_cb,
+      .arg = this,
+      .dispatch_method = ESP_TIMER_TASK,
+      .name = "cp_sample",
+  };
+  esp_timer_create(&sample_args, &sample_timer_);
+
+  // Heartbeat timer (kept as requested)
+  const esp_timer_create_args_t hb_args = {
+      .callback = &CpSampler::heartbeat_timer_cb,
+      .arg = this,
+      .dispatch_method = ESP_TIMER_TASK,
+      .name = "cp_heartbeat",
+  };
+  esp_timer_create(&hb_args, &heartbeat_timer_);
+
+  // Example heartbeat at 500 Hz (2 ms period) – adjust if you had a different value
+  esp_timer_start_periodic(heartbeat_timer_, 2000);
+
+  ESP_LOGI(TAG, "EVSE CP Sampler initialized on GPIO10, samples=%d", samples_);
+}
+
+// GPIO ISR: schedule single-shot sample 50 µs later
+void IRAM_ATTR CpSampler::gpio_isr_handler(void *arg) {
+  auto *self = static_cast<CpSampler *>(arg);
+  // Best effort: if timer already running, restart it
+  if (self->sample_timer_ != nullptr) {
+    esp_timer_stop(self->sample_timer_);
+    esp_timer_start_once(self->sample_timer_, 50);  // 50 microseconds
+  }
+}
+
+// Timer callback: sample ADC, compute averages, fire triggers
+void CpSampler::sample_timer_cb(void *arg) {
+  auto *self = static_cast<CpSampler *>(arg);
+  if (self->adc_handle_ == nullptr)
+    return;
+
+  int raw = 0;
+  if (adc_oneshot_read(self->adc_handle_, CP_ADC_CHANNEL, &raw) != ESP_OK)
+    return;
+
+  self->sum_raw_ += raw;
+  self->count_++;
+
+  if (self->count_ >= self->samples_ && self->samples_ > 0) {
+    int avg = self->sum_raw_ / self->count_;
+    self->sum_raw_ = 0;
+    self->count_ = 0;
+
+    // Trigger raw value automation
+    if (self->raw_value_trigger_ != nullptr)
+      self->raw_value_trigger_->trigger(avg);
+
+    // Very simple state derivation – customize to your CP levels
+    int state = (avg > 2000) ? 1 : 0;
+
+    if (state != self->prev_state_) {
+      if (self->state_change_trigger_ != nullptr)
+        self->state_change_trigger_->trigger(state);
+      self->prev_state_ = state;
+    }
+  }
+}
+
+// Heartbeat timer callback (kept, but minimal logic here)
+void CpSampler::heartbeat_timer_cb(void *arg) {
+  auto *self = static_cast<CpSampler *>(arg);
+  // You can add whatever periodic diagnostics you like here.
+  // For now, this is intentionally very light to avoid log spam.
+  (void) self;
+}
+
+void CpSampler::dump_config() {
+  ESP_LOGCONFIG(TAG, "EVSE CP Sampler:");
+  ESP_LOGCONFIG(TAG, "  PWM Pin: GPIO10 (fixed)");
+  ESP_LOGCONFIG(TAG, "  Samples per average: %d", this->samples_);
+}
+
+}  // namespace evse_cp_sampler
+}  // namespace esphome

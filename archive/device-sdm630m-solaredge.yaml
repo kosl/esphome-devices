@@ -1,0 +1,170 @@
+modbus_controller:
+  - id: eastron
+    modbus_id: modbus_eastron
+    address: 0x1 # Meter address
+    server_registers:
+      - address: 0x0000 # Phase 1 line to neutral volts.
+        value_type: FP32
+        read_lambda: |-
+          return id(I_AC_VoltageAN).state;
+      - address: 0x0002 # Phase 2 line to neutral volts.
+        value_type: FP32
+        read_lambda: |-
+          return id(I_AC_VoltageBN).state;
+      - address: 0x0004 # Phase 3 line to neutral volts.
+        value_type: FP32
+        read_lambda: |-
+          return id(I_AC_VoltageCN).state;
+      - address: 0x0006 # Phase 1 current.
+        value_type: FP32
+        read_lambda: |-
+          ESP_LOGI("energy_meter"," Phase 1 current.");
+          return id(I_AC_CurrentA).state;
+      - address: 0x0008 # Phase 2 current.
+        value_type: FP32
+        read_lambda: |-
+          return id(I_AC_CurrentB).state;
+      - address: 0x000A # Phase 3 current.
+        value_type: FP32
+        read_lambda: |-
+          return id(I_AC_CurrentC).state;
+      - address: 0x000C # Phase 1 power.
+        value_type: FP32
+        read_lambda: |-
+          return id(I_AC_VoltageAN).state*id(I_AC_CurrentA).state;
+      - address: 0x000E # Phase 2 power.
+        value_type: FP32
+        read_lambda: |-
+          return id(I_AC_VoltageBN).state*id(I_AC_CurrentB).state;
+      - address: 0x0010 # Phase 3 power.
+        value_type: FP32
+        read_lambda: |-
+          return id(I_AC_VoltageCN).state*id(I_AC_CurrentC).state;     
+      - address: 0x0012 # Phase 1 volt amps.
+        value_type: FP32
+        read_lambda: |-
+          return id(I_AC_VoltageAN).state*id(I_AC_CurrentA).state;
+      - address: 0x0014 # Phase 2 volt amps.
+        value_type: FP32
+        read_lambda: |-
+          return id(I_AC_VoltageBN).state*id(I_AC_CurrentB).state;
+      - address: 0x0016 # Phase 3 volt amps.
+        value_type: FP32
+        read_lambda: |-
+          return id(I_AC_VoltageCN).state*id(I_AC_CurrentC).state;
+      - address: 0x0018 # Phase 1 volt amps reactive.
+        value_type: FP32
+        read_lambda: |-
+          return 0.0;   
+      - address: 0x001A # Phase 2 volt amps reactive.
+        value_type: FP32
+        read_lambda: |-
+          return 0.0;   
+      - address: 0x001C # Phase 3 volt amps reactive.
+        value_type: FP32
+        read_lambda: |-
+          return 0.0;   
+      - address: 0x001E # Phase 1 power factor.
+        value_type: FP32
+        read_lambda: |-
+          return 1.0;   // pure resistive load
+      - address: 0x0020 # Phase 2 power factor.
+        value_type: FP32
+        read_lambda: |-
+          return 1.0;   // pure resistive load
+      - address: 0x0022 # Phase 3 power factor.
+        value_type: FP32
+        read_lambda: |-
+          return 1.0;   // pure resistive load
+      - address: 0x0024 # Phase 1 phase angle.
+        value_type: FP32
+        read_lambda: |-
+          return 0.0;   // ideal         
+      - address: 0x0026 # Phase 2 phase angle.
+        value_type: FP32
+        read_lambda: |-
+          return 0.0;   // ideal 
+      - address: 0x0028 # Phase 3 phase angle.
+        value_type: FP32
+        read_lambda: |-
+          return 0.0;   // ideal   
+      - address: 0x002A # Average line to neutral volts.
+        value_type: FP32
+        read_lambda: |-
+          return 230.0; 
+      - address: 0x002C # Line-to-Neutral Voltage on Phase 2 (V2N) ???
+        value_type: FP32
+        read_lambda: |-
+          return 230.0;                    
+      - address: 0x002E # Average line current.
+        value_type: FP32
+        read_lambda: |-
+          return id(I_AC_Current).state/3.0;                    
+      - address: 0x0030 # Sum of line currents.
+        value_type: FP32
+        read_lambda: |-
+          return id(I_AC_Current).state;   
+      - address: 0x0032 # ????
+        value_type: FP32
+        read_lambda: |-
+          return 0.0;      
+      - address: 0x0034 # Total system power.
+        value_type: FP32
+        read_lambda: |-
+          return id(I_AC_Power).state;
+      - address: 0x0036 # Frequency of supply voltages.
+        value_type: FP32
+        read_lambda: |-
+          return 50.0;                              
+      - address: 0x0038 # Total system volt amps.
+        value_type: FP32
+        read_lambda: |-
+          return id(I_AC_Power).state;
+      - address: 0x003A # ????
+        value_type: FP32
+        read_lambda: |-
+          return 0.0;
+      - address: 0x003C # Total system VAr.
+        value_type: FP32
+        read_lambda: |-
+          return id(I_AC_VAR).state;
+      - address: 0x003E # Total system power factor.
+        value_type: FP32
+        read_lambda: |-
+          return id(I_AC_PF).state/100.0;
+      - address: 0x0040 # ????
+        value_type: FP32
+        read_lambda: |-
+          return 0.0;          
+      - address: 0x0042 # Total system phase angle.
+        value_type: FP32
+        read_lambda: |-
+          return 0.0;         
+      - address: 0x0044 # ????
+        value_type: FP32
+        read_lambda: |-
+          return 0.0;        
+      - address: 0x0046 # Frequency of supply voltages.
+        value_type: FP32
+        read_lambda: |-
+          return id(I_AC_Frequency).state;   
+      - address: 0x0048 # Import Wh since last reset.
+        value_type: FP32
+        read_lambda: |-
+          return 0.0;   
+      - address: 0x0048 # Import Wh since last reset.
+        value_type: FP32
+        read_lambda: |-
+          return 0.0;   
+      - address: 0x004A # Export Wh since last reset.
+        value_type: FP32
+        read_lambda: |-
+          return id(I_AC_Energy_WH).state;
+      - address: 0x004C # Import VArh since last reset.
+        value_type: FP32
+        read_lambda: |-
+          return 0.0;
+      - address: 0x004E # Export VArh since last reset.
+        value_type: FP32
+        read_lambda: |-
+          return 0.0;

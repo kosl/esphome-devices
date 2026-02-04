@@ -1,0 +1,403 @@
+esphome:
+  name: alienevse
+  on_boot: 
+    then:
+      - output.turn_on: cp_ev_out_pwm
+      - output.set_level:
+          id: cp_ev_out_pwm
+          level: "10%"
+      - output.turn_on: cp_ch_out_b_out
+      - output.turn_off: cp_ch_out_c_out
+
+esp32:
+  board: esp32-c3-devkitc-02
+  framework:
+    type: esp-idf
+
+logger:
+  level: DEBUG
+
+api:
+  encryption:
+    key: "P4uQsJqmSpK6p5UI03a4jp6D4Js+j048IfbHy371h0I="
+
+ota:
+  - platform: esphome
+    password: "d4e0fb819ac7a260e2e2fc0c80627a5d"
+
+wifi:
+  networks:
+    - ssid: !secret wifi_mansarda_ssid
+      password: !secret wifi_password
+    - ssid: !secret wifi_eteradxa_ssid
+      password: !secret wifi_eteradxa_password
+  output_power: 8.5dB
+  power_save_mode: none  # Better reliability over power saving
+
+  ap:
+    ssid: "AlienEVSE Fallback Hotspot"
+    password: "ikyY62YLDjVE"
+
+captive_portal:
+
+external_components:
+  - source:
+      type: local
+      path: custom_components
+    components:
+      - evse_cp_sampler
+
+# - CP_CH_IN   GPIO1 (ADC)
+# - CP_CH_OUT_B GPIO7 (digital out)
+# - CP_CH_OUT_C GPIO6 (digital out)
+# - CP_EV_IN   GPIO0 (ADC)
+# - CP_EV_OUT  GPIO10 (PWM out)
+# - CC_L1      GPIO2 (ADC)
+# - CC_L2      GPIO3 (ADC)
+# - CC_L3      GPIO4 (ADC)
+
+light:
+  - platform: status_led
+    name: "Status LED"
+    id: esp_status_led
+    icon: "mdi:alarm-light"
+    pin:
+      number: GPIO8
+      inverted: true
+      ignore_strapping_warning: true 
+    entity_category: diagnostic
+    restore_mode: ALWAYS_OFF
+
+
+output:
+  - platform: gpio
+    id: cp_ch_out_b_out
+    pin: GPIO7
+
+  - platform: gpio
+    id: cp_ch_out_c_out
+    pin: GPIO6
+
+  - platform: ledc
+    id: cp_ev_out_pwm
+    pin: GPIO10
+    frequency: 1000Hz # default
+
+# binary_sensor:
+#   - platform: template
+#     name: "Charging Enabled"
+#     id: charging_enabled_sensor
+#     on_state:
+#       then: # State change will trigger updates to PWM and outputs via the template sensors
+#         - lambda: |-     
+#             id(pwm_duty_calc).update();
+#             id(ch_b_output_calc).update();
+#             id(ch_c_output_calc).update();
+
+switch:
+  - platform: template
+    name: "Charging Enabled"
+    id: charging_enabled
+    restore_mode: RESTORE_DEFAULT_OFF
+    turn_on_action: 
+      then:
+        - output.turn_on: cp_ch_out_b_out
+    turn_off_action: 
+      then:
+        - output.turn_off: cp_ch_out_b_out
+    # lambda: |-
+    #   return id(charging_enabled_sensor).state;
+    # turn_on_action:
+    #   - binary_sensor.template.publish:
+    #       id: charging_enabled_sensor
+    #       state: true
+    # turn_off_action:
+    #   - binary_sensor.template.publish:
+    #       id: charging_enabled_sensor
+    #       state: false
+
+number:
+  - platform: template
+    name: "Charging Amps"
+    id: charging_amps
+    min_value: 6
+    max_value: 16
+    step: 1
+    mode: slider
+    restore_value: true
+    set_action: 
+      then: # Amps change will trigger updates to PWM via the template sensor
+        - lambda: |-
+             id(pwm_duty_calc).update();  
+    # on_value:
+    #   then:
+    #     - lambda: |-
+    #         # Amps change will trigger updates to PWM via the template sensor
+    #         id(pwm_duty_calc).update();
+
+text_sensor:
+  - platform: template
+    id: charging_state
+    name: "Charging State"
+    entity_category: diagnostic
+    # lambda: |-
+    #   switch (id(evse_state_sensor).state) {
+    #     case 1: return std::string{"A Standby (EVSE ready, vehicle not connected)"};
+    #     case 2: return std::string{"B Vehicle detected (connected, not charging)"};
+    #     case 3: return std::string{"C Charging (energy flowing / charging sequence)"};
+    #     default: return std::string{"Unknown"};
+    #   }
+    # update_interval: never
+
+# Control Pilot voltage sampling at ADC at GPIO0 occurs 50 µs after PWM (ledc at GPIO10) rising edge
+# Heartbeat sampling at 500 Hz in DC mode (when PWM is disabled) 
+evse_cp_sampler:
+    id: cp_sampler
+    samples: 250
+    on_raw_value:
+      - lambda: |-
+          ESP_LOGD("evse_cp_sampler", "CP Sampler Average raw ADC value: %d", x);
+          id(cp_ev_in_diag).publish_state(x);
+    on_state_change:
+      - lambda: |-
+          const int state = x;
+          ESP_LOGI("evse", "New EVSE state detected: %d", state);
+          id(evse_state_sensor).publish_state(state);
+          id(charging_state).update();
+
+
+sensor:
+  # State tracking sensor
+  - platform: template
+    id: evse_state_sensor
+    internal: true
+    update_interval: never
+    on_value:
+      then: # State change triggers updates to all dependent sensors
+        - lambda: |-          
+            id(pwm_duty_calc).update();
+            id(ch_b_output_calc).update();
+            id(ch_c_output_calc).update();
+
+  # PWM duty calculation
+  - platform: template
+    id: pwm_duty_calc
+    internal: true
+    update_interval: never
+    on_value:
+      then:
+        - lambda: |-
+            const int state = id(evse_state_sensor).state;
+            const bool enabled = id(charging_enabled).state;
+            const float amps = id(charging_amps).state;
+            
+            float pwm_pct;
+            if(state == 1) {
+              pwm_pct = 100.0f;
+            } else if(state == 2 || state == 3) {
+              pwm_pct = enabled ? (amps / 0.6f) : 100.0f;
+            } else {
+              pwm_pct = 0.0f;
+            }
+            
+            if(pwm_pct < 0.0f) pwm_pct = 0.0f;
+            if(pwm_pct > 100.0f) pwm_pct = 100.0f;
+            
+            ESP_LOGI("evse", "Setting PWM duty to %.1f%%", pwm_pct);
+            id(cp_ev_out_pwm).set_level(pwm_pct / 100.0f);
+            id(pwm_duty).publish_state(pwm_pct);
+
+  # Channel B output calculation
+  - platform: template
+    id: ch_b_output_calc
+    internal: true
+    update_interval: never
+    on_value:
+      then:
+        - lambda: |-
+            const int state = id(evse_state_sensor).state;
+            bool ch_b = (state == 2 || state == 3);
+            
+            static bool last_ch_b = false;
+            if(ch_b != last_ch_b) {
+              ESP_LOGI("evse", "Setting CH B to %s", ch_b ? "HIGH" : "LOW");
+              id(cp_ch_out_b_out).set_state(ch_b);
+              last_ch_b = ch_b;
+            }
+
+  # Channel C output calculation
+  - platform: template
+    id: ch_c_output_calc
+    internal: true
+    update_interval: never
+    on_value:
+      then:
+        - lambda: |-
+            const int state = id(evse_state_sensor).state;
+            bool ch_c = (state == 3);
+            
+            static bool last_ch_c = false;
+            if(ch_c != last_ch_c) {
+              ESP_LOGI("evse", "Setting CH C to %s", ch_c ? "HIGH" : "LOW");
+              id(cp_ch_out_c_out).set_state(ch_c);
+              last_ch_c = ch_c;
+            }
+
+  # - platform: adc
+  #   id: cp_ch_in
+  #   pin: GPIO1  
+  #   attenuation: 12db
+  #   raw: true
+  #   update_interval: never
+  #   internal: true
+
+  # - platform: copy
+  #   name: "Charger CP"
+  #   id: cp_ch_in_diag
+  #   source_id: cp_ch_in
+  #   accuracy_decimals: 0
+  #   entity_category: diagnostic
+  #   filters:
+  #     - throttle: 1s
+    
+  # - platform: adc
+  #   id: cp_ev_in
+  #   pin: GPIO0
+  #   attenuation: 12db
+  #   raw: true
+  #   update_interval: never
+  #   internal: true
+
+  # Vehicle CP diagnostic - raw ADC values from CP sampler
+  - platform: template
+    name: "Vehicle CP"
+    id: cp_ev_in_diag
+    unit_of_measurement: "counts" 
+    entity_category: diagnostic 
+    filters:
+      - median:
+          window_size: 20  # 20 samples = 5 (10 in DC) seconds of data
+          send_every: 80  # Output every 80th median = every 20 (40 in DC) seconds
+          send_first_at: 8  # Send first value immediately after 2 (4 in DC) seconds
+
+  # - platform: copy
+  #   id: cp_ev_in_state
+  #   source_id: cp_ev_in
+  #   internal: true
+  #   filters:
+  #     - lambda: |-
+  #         if (x == 4095.0f) return 1;
+  #         else if (fabsf(x - 3200.0f) < 100.0f) return 3;
+  #         else if (fabsf(x - 3650.0f) < 100.0f) return 2;
+  #         else return 0;
+  #     - filter_out: 0
+  #   on_value:
+  #     then:
+  #       - lambda: |-
+  #           const int new_state = (int)x;
+  #           if(id(evse_state) == new_state) {
+  #             return;
+  #           }
+  #           ESP_LOGI("evse", "Detected candidate state: %d", new_state);
+  #           if(id(evse_candidate_count) == 0) {
+  #             ESP_LOGI("evse", "Starting candidate state tracking: %d", new_state);
+  #             id(evse_candidate_state) = new_state;
+  #             id(evse_candidate_count) = 1;
+  #             return;
+  #           }
+  #           if(new_state == id(evse_candidate_state)) {
+  #             ESP_LOGI("evse", "Incrementing candidate state count: %d", id(evse_candidate_count) + 1);
+  #             id(evse_candidate_count) += 1;
+  #           } else {
+  #             ESP_LOGI("evse", "Resetting candidate state to: %d", new_state);
+  #             id(evse_candidate_state) = new_state;
+  #             id(evse_candidate_count) = 1;
+  #           }
+  #           if(id(evse_candidate_count) > 3) {
+  #             ESP_LOGI("evse", "Committing to new state: %d", new_state);
+  #             id(evse_state) = new_state;
+  #             id(evse_candidate_count) = 0;
+  #           }
+
+  # - platform: adc
+  #   id: cc_l1
+  #   pin: GPIO2
+  #   update_interval: never
+  #   internal: True
+  # - platform: ct_clamp
+  #   sensor: cc_l1
+  #   name: "L1 Current"
+  #   update_interval: 2s
+  #   filters:
+  #     - calibrate_linear:        
+  #         - 0 -> 0
+  #         - 1.0 -> 16.0
+  # - platform: adc
+  #   id: cc_l2
+  #   pin: GPIO3
+  #   update_interval: never
+  #   internal: True
+  # - platform: ct_clamp
+  #   sensor: cc_l2
+  #   name: "L2 Current"
+  #   update_interval: 2s
+  #   filters:
+  #     - calibrate_linear:        
+  #         - 0 -> 0
+  #         - 1.0 -> 16.0
+  # - platform: adc
+  #   id: cc_l3
+  #   pin: GPIO4
+  #   update_interval: never
+  #   internal: True
+  # - platform: ct_clamp
+  #   sensor: cc_l3
+  #   name: "L3 Current"
+  #   update_interval: 2s
+  #   filters:
+  #     - calibrate_linear:        
+  #         - 0 -> 0
+  #         - 1.0 -> 16.0
+
+  # PWM Duty display sensor
+  - platform: template
+    name: "PWM Duty"
+    id: pwm_duty
+    unit_of_measurement: "%"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    # Will be updated by pwm_duty_calc
+    lambda: |-
+      return 0.0f;  
+    update_interval: never
+
+  # WiFi signal
+  - platform: wifi_signal
+    name: "WiFi Signal Strength"
+    id: wifi_rssi
+    update_interval: 1min  
+    unit_of_measurement: "dBm"
+    accuracy_decimals: 0
+    device_class: signal_strength
+    entity_category: diagnostic 
+ 
+
+
+
+# interval:
+#   - interval: 100ms
+#     then:
+#       - sensor.template.publish:
+#           id: pwm_duty_calc
+#           state: 0  # Triggers calculation
+#       - sensor.template.publish:
+#           id: ch_b_output_calc
+#           state: 0  # Triggers calculation
+#       - sensor.template.publish:
+#           id: ch_c_output_calc
+#           state: 0  # Triggers calculation
+
+button:
+  - platform: restart
+    name: Reboot
+    entity_category: diagnostic
