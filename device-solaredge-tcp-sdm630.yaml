@@ -521,7 +521,7 @@ sensor:
 # Text sensor showing all values
 text_sensor:
   - platform: template
-    name: "Registers"
+    name: "Modbus-TCP status"
     id: all_registers_status
     entity_category: diagnostic 
     lambda: |-
@@ -542,7 +542,7 @@ binary_sensor:
 
 modbus_controller:
   - id: eastron
-    modbus_id: modbus_eastron
+    modbus_id: ${modbus_id}
     address: 0x1 # Meter address
     server_registers:
       - address: 0x0000 # Phase 1 line to neutral volts.
@@ -673,7 +673,7 @@ modbus_controller:
         value_type: FP32
         read_lambda: |-
           return id(I_AC_PF).state/100.0;
-      - address: 0x0040 # ????
+      - address: 0x0040 # ???? reserved
         value_type: FP32
         read_lambda: |-
           return 0.0;          
@@ -681,7 +681,7 @@ modbus_controller:
         value_type: FP32
         read_lambda: |-
           return 0.0;         
-      - address: 0x0044 # ????
+      - address: 0x0044 # ???? reserved
         value_type: FP32
         read_lambda: |-
           return 0.0;        

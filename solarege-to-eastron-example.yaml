@@ -44,13 +44,13 @@ wifi:
 captive_portal:
 
 external_components:
-  # - source: github://kosl/esphome_modbus_tcp_master@slow-async
-  #   components: [modbus_tcp_manager]
-  #   refresh: 0s  # Always use latest version during development
-  - source:
-      type: local
-      path: external_components
+  - source: github://kosl/esphome_modbus_tcp_master@slow-async
     components: [modbus_tcp_manager]
+    refresh: 0s  # Always use latest version during development
+  # - source:
+  #     type: local
+  #     path: external_components
+  #   components: [modbus_tcp_manager]
 
 
 # Single connection manager for the Modbus device
@@ -89,6 +89,7 @@ packages:
   solaredge_meter: !include
     file: device-solaredge-tcp-sdm630.yaml
     vars:
+      modbus_id: modbus_eastron
       device_id_solaredge_inverter: device_solaredge
       device_id_solaredge_meter1: device_solaredge_meter1
   energy_meter: !include

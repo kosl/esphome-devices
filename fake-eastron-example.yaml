@@ -4,11 +4,11 @@
 
 esphome:
   name: energy-meter
-  friendly_name: Deye bridge for SDM630
+  friendly_name: SDM630 bridge for Deye
   min_version: 2026.1.0 
   devices: # https://esphome.io/components/esphome/#sub-devices
     - id: device_energy_meter
-      name: "Eastron SDM 630 (fake meter)"
+      name: "Eastron SDM 630"
 
 esp32:
   board: esp32-c3-devkitc-02
