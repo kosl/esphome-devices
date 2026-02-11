@@ -1,5 +1,5 @@
 substitutions:
-  name: deye-esphome                                                     #name in ESPhome
+  name: energy-meter                                                    #name in ESPhome
   device_description: "Esphome component for Deye sun-12k-sg04lp3"   #Description in ESPhome
   modbus_controller_id: sg04lp3                                      #just a random name for the modbus controler
   device_type: sun12k                                                #all entities in Home Assistant will start with this text to help identify the entitys 
@@ -8,7 +8,7 @@ esphome:
   name: ${name}
 
 esp32:
-  board: esp32-c3-devkitc-02
+  board: esp32-s3-fh4r2 # ESP32-S3 zero board
   framework:
     type: esp-idf
 
@@ -19,6 +19,7 @@ logger:
 api:
 
 ota:
+  - platform: esphome
 
 wifi:
   networks:
@@ -39,8 +40,8 @@ uart:
   # GPIO7 - TX to RX of bottom RS485 module
   # GPIO9 - RX to TX of bottom RS485 module
   - id: mod_bus
-    tx_pin: GPIO7
-    rx_pin: GPIO9 
+    tx_pin: GPIO1
+    rx_pin: GPIO3
     baud_rate: 9600
     debug:
       direction: BOTH

@@ -35,7 +35,13 @@ esp32:
 # Enable logging
 logger:
   level: INFO
-  #baud_rate: 0
+  baud_rate: 0
+  logs:
+    sensor: INFO
+    modbus_tcp_manager: INFO
+    
+
+  
 
 api: # Enable Home Assistant API
 
@@ -61,6 +67,10 @@ wifi:
 captive_portal:
 
 external_components:
+  # https://github.com/esphome/esphome/issues/12183$0
+  - source: github://pr#11969
+    components: [modbus, modbus_controller, modbus_server]
+    refresh: 1h  
   - source:
       type: git
       url: https://github.com/rosenrot00/esphome_modbus_bridge
@@ -90,6 +100,7 @@ uart:
     rx_pin: GPIO4
     tx_pin: GPIO5
     baud_rate: 9600
+    rx_buffer_size: 256
     debug:
       direction: BOTH
   # GPIO3 - RX to RXD of middle RS485 module
@@ -164,7 +175,7 @@ modbus_bridge:
   id: modbus_rtu_bridge
   uart_id: uart_rtu_bridge
   tcp_port: 502                  # TCP port to listen on
-  rtu_response_timeout: 3000     # ms, internally clamped to >=10 ms
+  rtu_response_timeout: 400      # ms, internally clamped to >=10 ms.  Deye responses are around 320 ms @ 9600 baud
   # tcp_client_timeout: 60000    # ms of inactivity before client is disconnected
   # tcp_allowed_clients: 2       # number of simultaneous TCP clients (min 1)
   # tcp_poll_interval: 50        # ms between TCP polls
