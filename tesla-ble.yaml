@@ -8,8 +8,8 @@ substitutions:
   board: "esp32-c3-devkitm-1"
   variant: "ESP32C3"
   ble_presence_timeout: 15s
-  tesla_ble_component: "github://PedroKTFC/esphome-tesla-ble@repair"
-  BLE_library: "https://github.com/PedroKTFC/tesla-ble.git#repair"
+  #tesla_ble_component: "github://PedroKTFC/esphome-tesla-ble@repair"
+  #BLE_library: "https://github.com/PedroKTFC/tesla-ble.git#repair"
   
 logger:
   level: INFO
@@ -30,18 +30,12 @@ api:
   encryption:
     key: !secret api_encryption_key # use "key: !secret your_secret_key_name" for greater security
 
-#packages:
-#  base:  github://PedroKTFC/esphome-tesla-ble/packages/base.yml
-#  common: github://PedroKTFC/esphome-tesla-ble/packages/common.yml #@dev
-#  project: github://PedroKTFC/esphome-tesla-ble/packages/project.yml
-#  client: github://PedroKTFC/esphome-tesla-ble/packages/client.yml #@dev
-
 packages:
   remote_package_files:
     url: https://github.com/PedroKTFC/esphome-tesla-ble/
     path: packages
     files: [base.yml, common.yml, project.yml, client.yml]
-    ref: repair
+    ref: v2026.2.0
 
   # listener: github://PedroKTFC/esphome-tesla-ble/packages/listener.yml # Uncomment this to scan find your VIN BLE MAC address
 
