@@ -203,7 +203,7 @@ globals:
   - id: global_ac_pf
     type: float
     restore_value: no
-    initial_value: '100.0f'   # default to unity PF if read fails
+    initial_value: '100.0f'
   - id: global_ac_power_total
     type: float
     restore_value: no
@@ -237,6 +237,86 @@ globals:
     restore_value: no
     initial_value: '0.0f'
   - id: global_ac_energy_wh
+    type: float
+    restore_value: no
+    initial_value: '0.0f'
+  - id: global_m_ac_current_total
+    type: float
+    restore_value: no
+    initial_value: '0.0f'
+  - id: global_m_ac_current_a
+    type: float
+    restore_value: no
+    initial_value: '0.0f'
+  - id: global_m_ac_current_b
+    type: float
+    restore_value: no
+    initial_value: '0.0f'
+  - id: global_m_ac_current_c
+    type: float
+    restore_value: no
+    initial_value: '0.0f'
+  - id: global_m_ac_voltage_ln_total
+    type: float
+    restore_value: no
+    initial_value: '0.0f'
+  - id: global_m_ac_voltage_a_n
+    type: float
+    restore_value: no
+    initial_value: '0.0f'
+  - id: global_m_ac_voltage_b_n
+    type: float
+    restore_value: no
+    initial_value: '0.0f'
+  - id: global_m_ac_voltage_c_n
+    type: float
+    restore_value: no
+    initial_value: '0.0f'
+  - id: global_m_ac_power_total
+    type: float
+    restore_value: no
+    initial_value: '0.0f'
+  - id: global_m_ac_power_a
+    type: float
+    restore_value: no
+    initial_value: '0.0f'
+  - id: global_m_ac_power_b
+    type: float
+    restore_value: no
+    initial_value: '0.0f'
+  - id: global_m_ac_power_c
+    type: float
+    restore_value: no
+    initial_value: '0.0f'
+  - id: global_m_exported_total
+    type: float
+    restore_value: no
+    initial_value: '0.0f'
+  - id: global_m_exported_a
+    type: float
+    restore_value: no
+    initial_value: '0.0f'
+  - id: global_m_exported_b
+    type: float
+    restore_value: no
+    initial_value: '0.0f'
+  - id: global_m_exported_c
+    type: float
+    restore_value: no
+    initial_value: '0.0f'
+  - id: global_m_imported_total
+    type: float
+    restore_value: no
+    initial_value: '0.0f'
+  - id: global_m_imported_a
+    type: float
+    restore_value: no
+    initial_value: '0.0f'
+  - id: global_m_imported_b
+    type: float
+    restore_value: no
+    initial_value: '0.0f'
+  - id: global_m_imported_c
     type: float
     restore_value: no
     initial_value: '0.0f'
@@ -414,6 +494,157 @@ interval:
 
           controller->queue_command(cmd);
 
+  - interval: 2s
+    then:
+      - lambda: |-
+          auto *controller = id(solaredge_controller);
+          static bool pending = false;
+          pending = true;
+
+          constexpr uint16_t start_addr = 40190; // 0-based for 40190
+          constexpr uint16_t count = 53; // up to 40242
+
+          // Fast scale-factor to multiplier
+          auto sf_to_mul = [](int16_t sf) -> float {
+            switch (sf) {
+              case -3:  return 0.001f;
+              case -2:  return 0.01f;
+              case -1:  return 0.1f;
+              case  0:  return 1.0f;
+              case  1:  return 10.0f;
+              case  2:  return 100.0f;
+              default:
+                ESP_LOGW("scale", "Unexpected SF: %d → using 1.0", sf);
+                return 1.0f;
+            }
+          };
+
+          auto cmd = esphome::modbus_controller::ModbusCommandItem::create_read_command(
+            controller,
+            ModbusRegisterType::HOLDING,
+            start_addr,
+            count,
+            [controller, sf_to_mul](ModbusRegisterType reg_type, uint16_t addr, const std::vector<uint8_t> &data) {
+              pending = false;
+
+              if (data.size() != count * 2) {
+                ESP_LOGE("modbus_meter1", "Invalid response size: got %zu, expected %u", data.size(), count * 2);
+                return;
+              }
+
+              // Helper lambdas
+              auto get_u16 = [&data](size_t reg_offset) -> uint16_t {
+                size_t byte_idx = reg_offset * 2;
+                return (static_cast<uint16_t>(data[byte_idx]) << 8) |
+                      static_cast<uint16_t>(data[byte_idx + 1]);
+              };
+
+              auto get_s16 = [&get_u16](size_t reg_offset) -> int16_t {
+                return static_cast<int16_t>(get_u16(reg_offset));
+              };
+
+              auto get_u32 = [&get_u16](size_t reg_offset) -> uint32_t {
+                return (static_cast<uint32_t>(get_u16(reg_offset)) << 16) |
+                       get_u16(reg_offset + 1);
+              };
+
+              // ── Extract scale factors ─────────────────────────────
+              int16_t sf_current = get_s16(4);  // 40194
+              int16_t sf_voltage = get_s16(13); // 40203
+              int16_t sf_power   = get_s16(20); // 40210
+              int16_t sf_energy  = get_s16(52); // 40242
+
+              // ── Fixed multipliers ────────────────────────────────
+              float mul_current = sf_to_mul(sf_current);
+              float mul_voltage = sf_to_mul(sf_voltage);
+              float mul_power   = sf_to_mul(sf_power);
+              float mul_energy  = sf_to_mul(sf_energy);
+
+              // ── Extract values ────────────────────────────────
+              int16_t m_ac_current_total_raw = get_s16(0);  // 40190
+              int16_t m_ac_current_a_raw     = get_s16(1);  // 40191
+              int16_t m_ac_current_b_raw     = get_s16(2);  // 40192
+              int16_t m_ac_current_c_raw     = get_s16(3);  // 40193
+
+              int16_t m_ac_voltage_ln_total_raw = get_s16(5);  // 40195
+              int16_t m_ac_voltage_a_n_raw      = get_s16(6);  // 40196
+              int16_t m_ac_voltage_b_n_raw      = get_s16(7);  // 40197
+              int16_t m_ac_voltage_c_n_raw      = get_s16(8);  // 40198
+
+              int16_t m_ac_power_total_raw = get_s16(16); // 40206
+              int16_t m_ac_power_a_raw     = get_s16(17); // 40207
+              int16_t m_ac_power_b_raw     = get_s16(18); // 40208
+              int16_t m_ac_power_c_raw     = get_s16(19); // 40209
+
+              uint32_t m_exported_total_raw = get_u32(36); // 40226-40227
+              uint32_t m_exported_a_raw     = get_u32(38); // 40228-40229
+              uint32_t m_exported_b_raw     = get_u32(40); // 40230-40231
+              uint32_t m_exported_c_raw     = get_u32(42); // 40232-40233
+
+              uint32_t m_imported_total_raw = get_u32(44); // 40234-40235
+              uint32_t m_imported_a_raw     = get_u32(46); // 40236-40237
+              uint32_t m_imported_b_raw     = get_u32(48); // 40238-40239
+              uint32_t m_imported_c_raw     = get_u32(50); // 40240-40241
+
+              // ── Calculations ────────────────────────────────
+              float m_ac_current_total = static_cast<float>(m_ac_current_total_raw) * mul_current;
+              float m_ac_current_a     = static_cast<float>(m_ac_current_a_raw) * mul_current;
+              float m_ac_current_b     = static_cast<float>(m_ac_current_b_raw) * mul_current;
+              float m_ac_current_c     = static_cast<float>(m_ac_current_c_raw) * mul_current;
+
+              float m_ac_voltage_ln_total = static_cast<float>(m_ac_voltage_ln_total_raw) * mul_voltage;
+              float m_ac_voltage_a_n      = static_cast<float>(m_ac_voltage_a_n_raw) * mul_voltage;
+              float m_ac_voltage_b_n      = static_cast<float>(m_ac_voltage_b_n_raw) * mul_voltage;
+              float m_ac_voltage_c_n      = static_cast<float>(m_ac_voltage_c_n_raw) * mul_voltage;
+
+              float m_ac_power_total = static_cast<float>(m_ac_power_total_raw) * mul_power;
+              float m_ac_power_a     = static_cast<float>(m_ac_power_a_raw) * mul_power;
+              float m_ac_power_b     = static_cast<float>(m_ac_power_b_raw) * mul_power;
+              float m_ac_power_c     = static_cast<float>(m_ac_power_c_raw) * mul_power;
+
+              float m_exported_total = static_cast<float>(m_exported_total_raw) * mul_energy;
+              float m_exported_a     = static_cast<float>(m_exported_a_raw) * mul_energy;
+              float m_exported_b     = static_cast<float>(m_exported_b_raw) * mul_energy;
+              float m_exported_c     = static_cast<float>(m_exported_c_raw) * mul_energy;
+
+              float m_imported_total = static_cast<float>(m_imported_total_raw) * mul_energy;
+              float m_imported_a     = static_cast<float>(m_imported_a_raw) * mul_energy;
+              float m_imported_b     = static_cast<float>(m_imported_b_raw) * mul_energy;
+              float m_imported_c     = static_cast<float>(m_imported_c_raw) * mul_energy;
+
+              // ── Store globals ────────────────────────────────
+              id(global_m_ac_current_total) = m_ac_current_total;
+              id(global_m_ac_current_a)     = m_ac_current_a;
+              id(global_m_ac_current_b)     = m_ac_current_b;
+              id(global_m_ac_current_c)     = m_ac_current_c;
+
+              id(global_m_ac_voltage_ln_total) = m_ac_voltage_ln_total;
+              id(global_m_ac_voltage_a_n)      = m_ac_voltage_a_n;
+              id(global_m_ac_voltage_b_n)      = m_ac_voltage_b_n;
+              id(global_m_ac_voltage_c_n)      = m_ac_voltage_c_n;
+
+              id(global_m_ac_power_total) = m_ac_power_total;
+              id(global_m_ac_power_a)     = m_ac_power_a;
+              id(global_m_ac_power_b)     = m_ac_power_b;
+              id(global_m_ac_power_c)     = m_ac_power_c;
+
+              id(global_m_exported_total) = m_exported_total;
+              id(global_m_exported_a)     = m_exported_a;
+              id(global_m_exported_b)     = m_exported_b;
+              id(global_m_exported_c)     = m_exported_c;
+
+              id(global_m_imported_total) = m_imported_total;
+              id(global_m_imported_a)     = m_imported_a;
+              id(global_m_imported_b)     = m_imported_b;
+              id(global_m_imported_c)     = m_imported_c;
+
+              ESP_LOGD("modbus_meter1", "Read OK | Power Total=%.0f W | Exported Total=%.0f Wh | Imported Total=%.0f Wh",
+                       m_ac_power_total, m_exported_total, m_imported_total);
+            }
+          );
+
+          controller->queue_command(cmd);          
+
 # 5-second publishing sensors (from globals)
 sensor:
   - platform: template
@@ -548,6 +779,187 @@ sensor:
     icon: "mdi:lightning-bolt-circle"
     update_interval: 5s
     lambda: 'return id(global_ac_energy_wh) / 1000.0;'
+
+# Meter1 sensors (10s update)
+  - platform: template
+    name: "Meter AC Current Total"
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 2
+    update_interval: 10s
+    lambda: 'return id(global_m_ac_current_total);'
+
+  - platform: template
+    name: "Meter AC Current A"
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 2
+    update_interval: 10s
+    lambda: 'return id(global_m_ac_current_a);'
+
+  - platform: template
+    name: "Meter AC Current B"
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 2
+    update_interval: 10s
+    lambda: 'return id(global_m_ac_current_b);'
+
+  - platform: template
+    name: "Meter AC Current C"
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 2
+    update_interval: 10s
+    lambda: 'return id(global_m_ac_current_c);'
+
+  - platform: template
+    name: "Meter AC Voltage LN Total"
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 1
+    update_interval: 10s
+    lambda: 'return id(global_m_ac_voltage_ln_total);'
+
+  - platform: template
+    name: "Meter AC Voltage A N"
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 1
+    update_interval: 10s
+    lambda: 'return id(global_m_ac_voltage_a_n);'
+
+  - platform: template
+    name: "Meter AC Voltage B N"
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 1
+    update_interval: 10s
+    lambda: 'return id(global_m_ac_voltage_b_n);'
+
+  - platform: template
+    name: "Meter AC Voltage C N"
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 1
+    update_interval: 10s
+    lambda: 'return id(global_m_ac_voltage_c_n);'
+
+  - platform: template
+    name: "Meter AC Real Power Total"
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: 'return id(global_m_ac_power_total);'
+
+  - platform: template
+    name: "Meter AC Real Power A"
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: 'return id(global_m_ac_power_a);'
+
+  - platform: template
+    name: "Meter AC Real Power B"
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: 'return id(global_m_ac_power_b);'
+
+  - platform: template
+    name: "Meter AC Real Power C"
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: 'return id(global_m_ac_power_c);'
+
+  - platform: template
+    name: "Meter Exported Energy Total"
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: 'return id(global_m_exported_total) / 1000.0;'
+
+  - platform: template
+    name: "Meter Exported Energy A"
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: 'return id(global_m_exported_a) / 1000.0;'
+
+  - platform: template
+    name: "Meter Exported Energy B"
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: 'return id(global_m_exported_b) / 1000.0;'
+
+  - platform: template
+    name: "Meter Exported Energy C"
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: 'return id(global_m_exported_c) / 1000.0;'
+
+  - platform: template
+    name: "Meter Imported Energy Total"
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: 'return id(global_m_imported_total) / 1000.0;'
+
+  - platform: template
+    name: "Meter Imported Energy A"
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: 'return id(global_m_imported_a) / 1000.0;'
+
+  - platform: template
+    name: "Meter Imported Energy B"
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: 'return id(global_m_imported_b) / 1000.0;'
+
+  - platform: template
+    name: "Meter Imported Energy C"
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: 'return id(global_m_imported_c) / 1000.0;'
 
 # Diagnostic
   - platform: wifi_signal
