@@ -172,8 +172,8 @@ uart:
     tx_pin: GPIO7
     rx_pin: GPIO9
     baud_rate: 115200
- #   debug:
- #     direction: BOTH
+    debug:
+      direction: BOTH
 
 modbus:
   send_wait_time: 200ms
@@ -203,7 +203,7 @@ globals:
   - id: global_ac_pf
     type: float
     restore_value: no
-    initial_value: '1.0f'   # default to unity PF if read fails
+    initial_value: '100.0f'   # default to unity PF if read fails
   - id: global_ac_power_total
     type: float
     restore_value: no
@@ -242,17 +242,17 @@ globals:
     initial_value: '0.0f'
 
 interval:
-  - interval: 1.5s  # Your requested 5-second updates!
+  - interval: 1s
     then:
       - lambda: |-
           auto *controller = id(solaredge_controller);
           uint16_t start_addr = 40071;  // 0-based protocol address for register 40071 (base 1)
           uint16_t count = 32;          // Covers up to ~40110, includes freq, energy, voltages
-          uint32_t t_start = micros();
+
           static bool pending = false;
           if (pending) {
             ESP_LOGW("modbus_solaredge", "Pending reading. Skipping...");
-            return;                    // avoid queuing while previous command in flight
+            //return;                    // avoid queuing while previous command in flight
           }
           pending = true;
 
@@ -261,8 +261,10 @@ interval:
             ModbusRegisterType::HOLDING,
             start_addr,
             count,
-            [t_start, start_addr, count](ModbusRegisterType reg_type, uint16_t addr, const std::vector<uint8_t> &data) {
+            [start_addr, count](ModbusRegisterType reg_type, uint16_t addr, const std::vector<uint8_t> &data) {
               pending = false;  // reset flag when done
+              uint32_t t_start = micros();
+
               if (data.size() != count * 2) {
                 ESP_LOGE("modbus_solaredge", "Invalid response size: got %zu, expected %u", data.size(), count * 2);
                 return;
@@ -277,53 +279,58 @@ interval:
               auto get_s16 = [&get_u16](size_t reg_offset) -> int16_t {
                 return static_cast<int16_t>(get_u16(reg_offset));
               };
-              // The following if (when 1) takes 350 µs instead of 60 µs on ESP32-C3
-              #if 0
-                int16_t sf_current      = get_s16( 4);   // 40075
-                int16_t sf_voltage      = get_s16(11);   // 40082
-                int16_t sf_power        = get_s16(13);   // 40084
-                int16_t sf_frequency    = get_s16(15);   // 40086
-                int16_t sf_pf           = get_s16(21);   // 40093
-                int16_t sf_energy_wh    = get_s16(24);   // 40095
-                int16_t sf_dc_current   = get_s16(26);   // 40098
-                int16_t sf_dc_voltage   = get_s16(28);   // 40100
-                int16_t sf_dc_power     = get_s16(30);   // 40102
 
-                // Scale factors
-                float mul_current   = powf(10.0f, sf_current);
-                float mul_voltage   = powf(10.0f, sf_voltage);
-                float mul_power   = powf(10.0f, sf_power);
-                float mul_pf    = powf(10.0f, sf_pf);
-                float mul_frequency  = powf(10.0f, sf_frequency);
-                float mul_energy = powf(10.0f, sf_energy_wh);
-                float mul_dc_cur = powf(10.0f, sf_dc_current);
-                float mul_dc_vol = powf(10.0f, sf_dc_voltage);
-                float mul_dc_pow = powf(10.0f, sf_dc_power);
-                static uint32_t log_counter = 0;
-                if (++log_counter % 60 == 1) {
-                  ESP_LOGI("mul", "mul_current   = %.4f  (from sf=%d)", mul_current,   sf_current);
-                  ESP_LOGI("mul", "mul_voltage   = %.4f  (from sf=%d)", mul_voltage,   sf_voltage);
-                  ESP_LOGI("mul", "mul_power     = %.4f  (from sf=%d)", mul_power,     sf_power);
-                  ESP_LOGI("mul", "mul_frequency = %.4f  (from sf=%d)", mul_frequency, sf_frequency);
-                  ESP_LOGI("mul", "mul_pf        = %.4f  (from sf=%d)", mul_pf,        sf_pf);
-                  ESP_LOGI("mul", "mul_energy    = %.4f  (from sf=%d)", mul_energy,    sf_energy_wh);
-                  ESP_LOGI("mul", "mul_dc_cur    = %.4f  (from sf=%d)", mul_dc_cur,    sf_dc_current);
-                  ESP_LOGI("mul", "mul_dc_vol    = %.4f  (from sf=%d)", mul_dc_vol,    sf_dc_voltage);
-                  ESP_LOGI("mul", "mul_dc_pow    = %.4f  (from sf=%d)", mul_dc_pow,    sf_dc_power);
+               
+              // Using powf(sf) takes 350 µs instead of 104 µs on ESP32-C3
+              auto mul_from_sf = [](int16_t sf) -> float {
+                // Lookup table for common SF → dynamic multipliers
+                // index 0 = sf -4, index 1 = sf -3, ...,
+                constexpr float mul_table[] = {0.000001f, 0.0001f, 0.001f, 0.01f, 0.1f, 1.0f, 10.0f, 100.0f};
+                int idx = sf + 5;           // -5 → 0, -4 → 1, ..., +2 → 7
+                if (idx >= 0 && idx <= 7) {
+                  return mul_table[idx];
                 }
-              #else
-                // fixed Scale factors
-                const float mul_current   = 0.01f;
-                const float mul_voltage   = 0.1f;
-                const float mul_power     = 1.0f;
-                const float mul_pf        = 1.0f;
-                const float mul_frequency = 0.01f;
-                const float mul_energy    = 1.0f;
-                const float mul_dc_cur    = 0.01f;
-                const float mul_dc_vol    = 0.1f;
-                const float mul_dc_pow    = 1.0f;
-              #endif
+                if (sf < -10) return 0.0f;
+                ESP_LOGW("scale", "Bad SF: %d", sf);
+                return 1.0f;
+              };
+              
+              int16_t sf_current      = get_s16( 4);   // 40075
+              int16_t sf_voltage      = get_s16(11);   // 40082
+              int16_t sf_power        = get_s16(13);   // 40084
+              int16_t sf_frequency    = get_s16(15);   // 40086
+              //int16_t sf_power_va     = get_s16(17);
+              int16_t sf_pf           = get_s16(21);   // 40093
+              int16_t sf_energy_wh    = get_s16(24);   // 40095
+              int16_t sf_dc_current   = get_s16(26);   // 40098
+              int16_t sf_dc_voltage   = get_s16(28);   // 40100
+              int16_t sf_dc_power     = get_s16(30);   // 40102
 
+              // Scale factors
+              float mul_current   = mul_from_sf(sf_current);
+              float mul_voltage   = mul_from_sf(sf_voltage);
+              float mul_power   = mul_from_sf(sf_power);
+              float mul_pf    = mul_from_sf(sf_pf);
+              float mul_frequency  = mul_from_sf(sf_frequency);
+              //float mul_power_va = mul_from_sf(sf_power_va);
+              float mul_energy = mul_from_sf(sf_energy_wh);
+              float mul_dc_cur = mul_from_sf(sf_dc_current);
+              float mul_dc_vol = mul_from_sf(sf_dc_voltage);
+              float mul_dc_pow = mul_from_sf(sf_dc_power);
+              #if 0
+              static uint32_t log_counter = 0;
+              if (++log_counter % 60 == 3) {                                                            
+                 ESP_LOGI("mul", "mul_current   = %.4f  (from sf=%d)", mul_current,   sf_current);        
+                 ESP_LOGI("mul", "mul_voltage   = %.4f  (from sf=%d)", mul_voltage,   sf_voltage);
+                 ESP_LOGI("mul", "mul_power     = %.4f  (from sf=%d)", mul_power,     sf_power); 
+                 ESP_LOGI("mul", "mul_frequency = %.4f  (from sf=%d)", mul_frequency, sf_frequency);      
+                 ESP_LOGI("mul", "mul_pf        = %.4f  (from sf=%d)", mul_pf,        sf_pf);  
+                 ESP_LOGI("mul", "mul_energy    = %.4f  (from sf=%d)", mul_energy,    sf_energy_wh);      
+                 ESP_LOGI("mul", "mul_dc_cur    = %.4f  (from sf=%d)", mul_dc_cur,    sf_dc_current);     
+                 ESP_LOGI("mul", "mul_dc_vol    = %.4f  (from sf=%d)", mul_dc_vol,    sf_dc_voltage);     
+                 ESP_LOGI("mul", "mul_dc_pow    = %.4f  (from sf=%d)", mul_dc_pow,    sf_dc_power);
+              }
+              #endif
               // ── AC side ──
               uint16_t I_AC_Current_total = get_u16(0);
               uint16_t I_AC_CurrentA      = get_u16(1);
@@ -331,6 +338,7 @@ interval:
               uint16_t I_AC_CurrentC      = get_u16(3);
               int16_t  I_AC_Power_raw     = get_s16(12);
               uint16_t I_AC_Freq_raw      = get_u16(14);  // 40085
+              //uint16_t I_AC_Power_VA_raw  = get_s16(16);
               int16_t  pf_raw             = get_s16(20);  // 40091 → I_AC_PF
 
               uint32_t energy_raw         = (static_cast<uint32_t>(get_u16(22)) << 16) |
@@ -351,14 +359,19 @@ interval:
 
               float pow_total = static_cast<float>(I_AC_Power_raw) * mul_power;
               float pf_total  = static_cast<float>(pf_raw) * mul_pf;
+              //float pow_total_va = static_cast<float>(I_AC_Power_VA_raw) * mul_power_va;
 
               float frequency = static_cast<float>(I_AC_Freq_raw) * mul_frequency;
               float energy_wh = static_cast<float>(energy_raw) * mul_energy;
 
               // Per-phase power
-              float pow_a = v_an * cur_a * pf_total;
-              float pow_b = v_bn * cur_b * pf_total;
-              float pow_c = v_cn * cur_c * pf_total;
+              float pf;
+              float pva = v_an * cur_a + v_bn * cur_b  + v_cn * cur_c;
+              if (pva > 0.0f) pf = pow_total/pva;
+              else pf = 0.0f;
+              float pow_a = v_an * cur_a * pf;
+              float pow_b = v_bn * cur_b * pf;
+              float pow_c = v_cn * cur_c * pf;
 
               if (v_an < 1.0f || v_bn < 1.0f || v_cn < 1.0f) {
                 float sum_cur = cur_a + cur_b + cur_c + 1e-6f;
@@ -395,6 +408,7 @@ interval:
               ESP_LOGD("timing", "Handler took %u µs", micros() - t_start);
               ESP_LOGD("modbus_solaredge", "Read OK | Freq=%.2f Hz | Energy=%.0f Wh | V_AN=%.1f V | DC=%.0f W",
                        frequency, energy_wh, v_an, dc_power);
+              //ESP_LOGI("power_sum", "Total = %f (%f+%f+%f)=%f", pow_total, pow_a, pow_b, pow_c, pow_a+pow_b+pow_c);
             }
           );
 
@@ -449,11 +463,11 @@ sensor:
   - platform: template
     name: "AC Power Factor"
     id: s_ac_pf
-    accuracy_decimals: 3
+    accuracy_decimals: 2
+    unit_of_measurement: "%"
     icon: "mdi:cosine-wave"
     update_interval: 5s
     lambda: 'return id(global_ac_pf);'
-    entity_category: diagnostic
 
   - platform: template
     name: "DC Power"
