@@ -5,7 +5,7 @@
 
 esphome:
   name: energy-meter
-  friendly_name: Deye with Solaredge to SDM630 meter
+  friendly_name: deye
   min_version: 2026.1.0 
   devices: # https://esphome.io/components/esphome/#sub-devices
     - id: device_solaredge
@@ -29,13 +29,15 @@ esp32:
 
 # Enable logging
 logger:
-  level: INFO
+  level: DEBUG
   baud_rate: 0
   logs:
     sensor: INFO
-    
-
-  
+    modbus_controller.sensor: INFO
+    timing: WARN
+    solaredge_summary: INFO
+    modbus_server: WARN
+    health: WARN
 
 api: # Enable Home Assistant API
 
@@ -65,33 +67,58 @@ external_components:
   - source: github://pr#11969
     components: [modbus, modbus_controller, modbus_server]
     refresh: 1h
+  - source:
+      type: git
+      url: https://github.com/rosenrot00/esphome_modbus_bridge
+    components: [modbus_bridge]
 
 uart:
-  # GPIO4 - RX to RXD of top RS485 module
-  # GPIO5 - TX to TXD of top RS485 module
+  # GPIO4 - RX to RXD of middle RS485 module
+  # GPIO5 - TX to TXD of middle RS485 module
   - id: uart_meter
     rx_pin: GPIO4
     tx_pin: GPIO5
     baud_rate: 9600
     rx_buffer_size: 256
-    debug:
-      direction: BOTH
-  # GPIO3 - RX to RXD of middle RS485 module
-  # GPIO1 - TX to TXD of middle RS485 module
-  - id: uart_rtu_master
+    #debug:
+    #  direction: BOTH
+  # GPIO3 - RX to RXD of bottom RS485 module
+  # GPIO1 - TX to TXD of bottom RS485 module
+  - id: uart_modbus_bridge
     rx_pin: GPIO3
     tx_pin: GPIO1
     baud_rate: 115200
-    rx_buffer_size: 256 # minimum 256 recommended; increase for long RTU responses
-
+    rx_buffer_size: 512 # minimum 256 recommended; increase for long RTU responses
+    #debug:
+    #  direction: BOTH
+  - id: uart_rtu_master
+    rx_pin: GPIO44 # GPIO3
+    tx_pin: GPIO43 # GPIO1
+    baud_rate: 19200
+    rx_buffer_size: 512 # minimum 256 recommended; increase for long RTU responses
+    #debug:
+    #  direction: BOTH
+      
 modbus:
   - id: modbus_meter
     uart_id: uart_meter
     role: server # https://esphome.io/components/modbus_controller/#example-server
   - id: mod_bus
-    send_wait_time: 200ms
+    send_wait_time: 200ms # Solaredge responds in < 150 ms
     uart_id: uart_rtu_master
-            
+
+substitutions:
+  modbus_controller_id: sun12ksg04lp3
+  entities_name_prefix: ""
+  entities_id_prefix: inverter
+
+modbus_controller:
+  - id: ${modbus_controller_id}
+    address: 0x1
+    modbus_id: mod_bus
+    setup_priority: -10
+    update_interval: 15sec  
+
 # Include packages for Solaredge to Eastron 
 packages:
 # Include packages for Eastron
@@ -101,7 +128,11 @@ packages:
       modbus_id: modbus_meter
       device_id_solaredge_inverter: device_solaredge
       device_id_solaredge_meter1: device_solaredge_meter1
-
+# deye:
+#   url: https://github.com/KastB/esphome-for-deye
+#   path: modules
+#   files: [solar.yaml, battery.yaml, load.yaml, generator.yaml, general.yaml]
+#   ref: main
 
   # Health monitoring (without WiFi check to avoid compilation issues)
 interval:
@@ -136,5 +167,44 @@ sensor:
     unit_of_measurement: "dBm"
     accuracy_decimals: 0
     device_class: signal_strength
-    entity_category: diagnostic 
+    entity_category: diagnostic
 
+  - platform: template
+    name: "TCP Clients"
+    id: mb_tcp_clients
+    accuracy_decimals: 0
+    update_interval: never
+
+# Modbus bridge configuration: TCP server <-> UART RTU translator
+modbus_bridge:
+  id: mb_bridge
+  uart_id: uart_modbus_bridge
+  tcp_port: 502                  # TCP port to listen on
+  rtu_response_timeout: 400      # ms, internally clamped to >=10 ms
+  # tcp_client_timeout: 60000    # ms of inactivity before client is disconnected
+  # tcp_allowed_clients: 2       # number of simultaneous TCP clients (min 1)
+  # tcp_poll_interval: 50        # ms between TCP polls
+  # de_pin: GPIO18               # Optional: RS-485 Driver Enable (DE)
+  # re_pin: GPIO19               # Optional: RS-485 Receiver Enable (/RE) - de_pin and re_pin can be the same GPIO
+  # (DE and /RE may be the same GPIO if the transceiver ties them together)
+  # crc_bytes_swapped: false     # allows to swap CRC byte order LO/HI -> HI/LO
+  # enabled: true                # allows to enable or disable during runtime
+  # uart_wake_loop_on_rx: false  # default false; set true to enable ESPHome's UART low-latency RX wake
+  # Event: triggered whenever number of TCP clients changes
+  on_tcp_clients_changed:
+    then:
+      - lambda: |-
+          id(tcp_clients) = count;
+      - logger.log:
+          format: "TCP clients connected: %d"
+          args: ['count']
+      - sensor.template.publish:
+            id: mb_tcp_clients
+            state: !lambda |-
+              return (int) count;
+# Global variable to store connected TCP client count
+globals:
+  - id: tcp_clients
+    type: int
+    restore_value: no
+    initial_value: '0'

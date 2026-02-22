@@ -124,8 +124,15 @@ modbus_controller:
   - id: solaredge_controller
     address: 0x03
     modbus_id: mod_bus
-    command_throttle: 100ms
     update_interval: never
+    setup_priority: -10
+    on_command_sent:
+      then:
+        - lambda: |-
+            id(global_modbus_response_timer) = millis();
+            ESP_LOGD("timing", "Solaredge command sent...");
+
+            
 
 globals:
   - id: global_ac_power_a
@@ -272,30 +279,58 @@ globals:
     type: float
     restore_value: no
     initial_value: '0.0f'
+  - id: global_modbus_response_timer
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
 
 # Mapping of Inverter sensors to SDM630 modbus registers
 
 modbus_server:
-  - id: eastron
+  - id: utility_meter
+    modbus_id: ${modbus_id}
+    address: 0x01 # Meter address
+    server_registers:
+      - address: 0x000C # Phase 1 power.
+        value_type: FP32
+        read_lambda: |-
+          return id(global_m_ac_power_a);
+      - address: 0x000E # Phase 2 power.
+        value_type: FP32
+        read_lambda: |-
+          return id(global_m_ac_power_b);
+      - address: 0x0010 # Phase 3 power.
+        value_type: FP32
+        read_lambda: |-
+          return id(global_m_ac_power_c);
+      - address: 0x0048 # Import Wh since last reset
+        value_type: FP32
+        read_lambda: |-
+          return id(global_m_imported_total);     
+      - address: 0x004A # Export Wh since last reset
+        value_type: FP32
+        read_lambda: |-
+          return id(global_m_exported_total);
+  - id: grid_side_inverter_meter_2
     modbus_id: ${modbus_id}
     address: 0x02 # Meter address
     server_registers:
       - address: 0x000C # Phase 1 power.
         value_type: FP32
         read_lambda: |-
-          return id(global_ac_power_a);
+          return id(global_ac_power_a);//+11.23;
       - address: 0x000E # Phase 2 power.
         value_type: FP32
         read_lambda: |-
-          return id(global_ac_power_b);
+          return id(global_ac_power_b);//+22.34;
       - address: 0x0010 # Phase 3 power.
         value_type: FP32
         read_lambda: |-
-          return id(global_ac_power_c);
+          return id(global_ac_power_c);//+33.45;
       - address: 0x0012 # Phase 1 volt amps.
         value_type: FP32
         read_lambda: |-
-          return id(global_ac_power_va_a);
+          return id(global_ac_power_va_a);//+44.56;
       - address: 0x0014 # Phase 2 volt amps.
         value_type: FP32
         read_lambda: |-
@@ -305,19 +340,159 @@ modbus_server:
         read_lambda: |-
           return id(global_ac_power_va_c);
 
-
 interval:
-  - interval: 1s
+  - interval: 1.1s
     then:
       - lambda: |-
           auto *controller = id(solaredge_controller);
-          uint16_t start_addr = 40071;  // 0-based protocol address for register 40071 (base 1)
+          static bool pending = false; 
+          
+          if (pending) {
+            ESP_LOGW("modbus_solaredge", "Pending reading meter. Skipping...");
+            //return;                    // avoid queuing while previous command in flight
+          }
+          pending = true;
+
+          constexpr uint16_t start_addr = 40190; // 0-based for 40191
+          constexpr uint16_t count = 53; // up to 40242
+
+          // Fast scale-factor to multiplier
+          auto sf_to_mul = [](int16_t sf) -> float {
+            switch (sf) {
+              case -1:  return 0.1f;
+              case -2:  return 0.01f;
+              case  0:  return 1.0f;
+              case -3:  return 0.001f;
+              case -4:  return 0.0001f;
+              case  1:  return 10.0f;
+              case  2:  return 100.0f;
+              default:
+                ESP_LOGW("scale", "Unexpected meter SF:  using powf(10, %d)", sf);
+                return powf(10.0f, sf);
+            }
+          };
+
+          auto cmd = esphome::modbus_controller::ModbusCommandItem::create_read_command(
+            controller,
+            ModbusRegisterType::HOLDING,
+            start_addr,
+            count,
+            [controller, sf_to_mul](ModbusRegisterType reg_type, uint16_t addr, const std::vector<uint8_t> &data) {
+              pending = false;
+              ESP_LOGI("timing", "Solaredge METER took %u ms to reply", millis() - id(global_modbus_response_timer));
+              if (data.size() != count * 2) {
+                ESP_LOGE("modbus_meter1", "Invalid response size: got %zu, expected %u", data.size(), count * 2);
+                return;
+              }
+
+              // Helper lambdas
+              auto get_u16 = [&data](size_t reg_offset) -> uint16_t {
+                size_t byte_idx = reg_offset * 2;
+                return (static_cast<uint16_t>(data[byte_idx]) << 8) |
+                      static_cast<uint16_t>(data[byte_idx + 1]);
+              };
+
+              auto get_s16 = [&get_u16](size_t reg_offset) -> int16_t {
+                return static_cast<int16_t>(get_u16(reg_offset));
+              };
+
+              auto get_u32 = [&get_u16](size_t reg_offset) -> uint32_t {
+                return (static_cast<uint32_t>(get_u16(reg_offset)) << 16) |
+                       get_u16(reg_offset + 1);
+              };
+
+              // ── Extract scale factors ─────────────────────────────
+              int16_t sf_current = get_s16(4);  // 40194
+              int16_t sf_voltage = get_s16(13); // 40203
+              int16_t sf_power   = get_s16(20); // 40210
+              int16_t sf_energy  = get_s16(52); // 40242
+
+              // ── Fixed multipliers ────────────────────────────────
+              float mul_current = sf_to_mul(sf_current);
+              float mul_voltage = sf_to_mul(sf_voltage);
+              float mul_power   = sf_to_mul(sf_power);
+              float mul_energy  = sf_to_mul(sf_energy);
+
+              // ── Extract values ────────────────────────────────
+          #if 0              
+              int16_t m_ac_current_total_raw = get_s16(0);  // 40190
+              int16_t m_ac_current_a_raw     = get_s16(1);  // 40191
+              int16_t m_ac_current_b_raw     = get_s16(2);  // 40192
+              int16_t m_ac_current_c_raw     = get_s16(3);  // 40193
+
+              int16_t m_ac_voltage_ln_total_raw = get_s16(5);  // 40195
+              int16_t m_ac_voltage_a_n_raw      = get_s16(6);  // 40196
+              int16_t m_ac_voltage_b_n_raw      = get_s16(7);  // 40197
+              int16_t m_ac_voltage_c_n_raw      = get_s16(8);  // 40198
+          #endif
+              int16_t m_ac_power_total_raw = -get_s16(16); // 40206
+              int16_t m_ac_power_a_raw     = -get_s16(17); // 40207
+              int16_t m_ac_power_b_raw     = -get_s16(18); // 40208
+              int16_t m_ac_power_c_raw     = -get_s16(19); // 40209
+
+              uint32_t m_exported_total_raw = get_u32(36); // 40226-40227
+              uint32_t m_imported_total_raw = get_u32(44); // 40234-40235
+              
+              // ── Calculations ────────────────────────────────
+          #if 0              
+              float m_ac_current_total = static_cast<float>(m_ac_current_total_raw) * mul_current;
+              float m_ac_current_a     = static_cast<float>(m_ac_current_a_raw) * mul_current;
+              float m_ac_current_b     = static_cast<float>(m_ac_current_b_raw) * mul_current;
+              float m_ac_current_c     = static_cast<float>(m_ac_current_c_raw) * mul_current;
+
+              float m_ac_voltage_ln_total = static_cast<float>(m_ac_voltage_ln_total_raw) * mul_voltage;
+              float m_ac_voltage_a_n      = static_cast<float>(m_ac_voltage_a_n_raw) * mul_voltage;
+              float m_ac_voltage_b_n      = static_cast<float>(m_ac_voltage_b_n_raw) * mul_voltage;
+              float m_ac_voltage_c_n      = static_cast<float>(m_ac_voltage_c_n_raw) * mul_voltage;
+          #endif
+              float m_ac_power_total = static_cast<float>(m_ac_power_total_raw) * mul_power;
+              float m_ac_power_a     = static_cast<float>(m_ac_power_a_raw) * mul_power;
+              float m_ac_power_b     = static_cast<float>(m_ac_power_b_raw) * mul_power;
+              float m_ac_power_c     = static_cast<float>(m_ac_power_c_raw) * mul_power;
+
+              float m_exported_total = static_cast<float>(m_exported_total_raw) * mul_energy;
+              float m_imported_total = static_cast<float>(m_imported_total_raw) * mul_energy;
+          #if 0        
+              // ── Store globals ────────────────────────────────
+              id(global_m_ac_current_total) = m_ac_current_total;
+              id(global_m_ac_current_a)     = m_ac_current_a;
+              id(global_m_ac_current_b)     = m_ac_current_b;
+              id(global_m_ac_current_c)     = m_ac_current_c;
+
+              id(global_m_ac_voltage_ln_total) = m_ac_voltage_ln_total;
+              id(global_m_ac_voltage_a_n)      = m_ac_voltage_a_n;
+              id(global_m_ac_voltage_b_n)      = m_ac_voltage_b_n;
+              id(global_m_ac_voltage_c_n)      = m_ac_voltage_c_n;
+          #endif
+              id(global_m_ac_power_total) = m_ac_power_total;
+              id(global_m_ac_power_a)     = m_ac_power_a;
+              id(global_m_ac_power_b)     = m_ac_power_b;
+              id(global_m_ac_power_c)     = m_ac_power_c;
+
+              id(global_m_exported_total) = m_exported_total;
+              id(global_m_imported_total) = m_imported_total;
+              
+              ESP_LOGD("solaredge_summary", "Read OK | Power Total=%.0f W | Exported Total=%.0f Wh | Imported Total=%.0f Wh",
+                       m_ac_power_total, m_exported_total, m_imported_total);
+            }
+          );
+
+          controller->queue_command(cmd);
+          ESP_LOGD("timing", "Solaredge METER command queued...");
+
+  #- interval: 1s
+  #  then:
+      - lambda: |-
+          static uint16_t skip = 0;
+          if (skip++ %2 != 0) return;
+          auto *controller = id(solaredge_controller);
+          uint16_t start_addr = 40071;  // 0-based protocol address for register 40072 (base 1)
           uint16_t count = 32;          // Covers up to ~40110, includes freq, energy, voltages
 
           static bool pending = false;
           if (pending) {
-            ESP_LOGW("modbus_solaredge", "Pending reading. Skipping...");
-            //return;                    // avoid queuing while previous command in flight
+            ESP_LOGW("modbus_solaredge", "Pending reading inverter. Skipping...");
+           // return;                    // avoid queuing while previous command in flight
           }
           pending = true;
 
@@ -326,9 +501,9 @@ interval:
             ModbusRegisterType::HOLDING,
             start_addr,
             count,
-            [start_addr, count](ModbusRegisterType reg_type, uint16_t addr, const std::vector<uint8_t> &data) {
+            [count](ModbusRegisterType reg_type, uint16_t addr, const std::vector<uint8_t> &data) {
               pending = false;  // reset flag when done
-              uint32_t t_start = micros();
+              ESP_LOGI("timing", "Solaredge took %u ms to reply", millis() - id(global_modbus_response_timer));            
 
               if (data.size() != count * 2) {
                 ESP_LOGE("modbus_solaredge", "Invalid response size: got %zu, expected %u", data.size(), count * 2);
@@ -355,9 +530,9 @@ interval:
                 if (idx >= 0 && idx <= 8) {
                   return mul_table[idx];
                 }
-                if (sf < -10) return 0.0f;
-                ESP_LOGW("scale", "Bad SF: %d", sf);
-                return 1.0f;
+                if (sf < -8) return 0.0f;
+                ESP_LOGW("scale", "Unexpected inverter SF:  using powf(10, %d)", sf);
+                return powf(10.0f, sf);
               };
               
               int16_t sf_current      = get_s16( 4);   // 40075
@@ -473,166 +648,16 @@ interval:
               id(global_dc_voltage) = dc_voltage;
               id(global_dc_power)   = dc_power;
 
-              ESP_LOGD("timing", "Handler took %u µs", micros() - t_start);
-              ESP_LOGD("modbus_solaredge", "Read OK | Freq=%.2f Hz | Energy=%.0f Wh | V_AN=%.1f V | DC=%.0f W",
+              ESP_LOGD("solaredge_summary", "Read OK | Freq=%.2f Hz | Energy=%.0f Wh | V_AN=%.1f V | DC=%.0f W",
                        frequency, energy_wh, v_an, dc_power);
               //ESP_LOGI("power_sum", "Total = %f (%f+%f+%f)=%f", pow_total, pow_a, pow_b, pow_c, pow_a+pow_b+pow_c);
             }
           );
 
           controller->queue_command(cmd);
+          ESP_LOGD("timing", "Solaredge command queued...");
 
-  - interval: 2s
-    then:
-      - lambda: |-
-          auto *controller = id(solaredge_controller);
-          static bool pending = false;
-          pending = true;
-
-          constexpr uint16_t start_addr = 40190; // 0-based for 40190
-          constexpr uint16_t count = 53; // up to 40242
-
-          // Fast scale-factor to multiplier
-          auto sf_to_mul = [](int16_t sf) -> float {
-            switch (sf) {
-              case -3:  return 0.001f;
-              case -2:  return 0.01f;
-              case -1:  return 0.1f;
-              case  0:  return 1.0f;
-              case  1:  return 10.0f;
-              case  2:  return 100.0f;
-              default:
-                ESP_LOGW("scale", "Unexpected meter SF:  using powf(10, %d)", sf);
-                return powf(10.0f, sf);
-            }
-          };
-
-          auto cmd = esphome::modbus_controller::ModbusCommandItem::create_read_command(
-            controller,
-            ModbusRegisterType::HOLDING,
-            start_addr,
-            count,
-            [controller, sf_to_mul](ModbusRegisterType reg_type, uint16_t addr, const std::vector<uint8_t> &data) {
-              pending = false;
-
-              if (data.size() != count * 2) {
-                ESP_LOGE("modbus_meter1", "Invalid response size: got %zu, expected %u", data.size(), count * 2);
-                return;
-              }
-
-              // Helper lambdas
-              auto get_u16 = [&data](size_t reg_offset) -> uint16_t {
-                size_t byte_idx = reg_offset * 2;
-                return (static_cast<uint16_t>(data[byte_idx]) << 8) |
-                      static_cast<uint16_t>(data[byte_idx + 1]);
-              };
-
-              auto get_s16 = [&get_u16](size_t reg_offset) -> int16_t {
-                return static_cast<int16_t>(get_u16(reg_offset));
-              };
-
-              auto get_u32 = [&get_u16](size_t reg_offset) -> uint32_t {
-                return (static_cast<uint32_t>(get_u16(reg_offset)) << 16) |
-                       get_u16(reg_offset + 1);
-              };
-
-              // ── Extract scale factors ─────────────────────────────
-              int16_t sf_current = get_s16(4);  // 40194
-              int16_t sf_voltage = get_s16(13); // 40203
-              int16_t sf_power   = get_s16(20); // 40210
-              int16_t sf_energy  = get_s16(52); // 40242
-
-              // ── Fixed multipliers ────────────────────────────────
-              float mul_current = sf_to_mul(sf_current);
-              float mul_voltage = sf_to_mul(sf_voltage);
-              float mul_power   = sf_to_mul(sf_power);
-              float mul_energy  = sf_to_mul(sf_energy);
-
-              // ── Extract values ────────────────────────────────
-              int16_t m_ac_current_total_raw = get_s16(0);  // 40190
-              int16_t m_ac_current_a_raw     = get_s16(1);  // 40191
-              int16_t m_ac_current_b_raw     = get_s16(2);  // 40192
-              int16_t m_ac_current_c_raw     = get_s16(3);  // 40193
-
-              int16_t m_ac_voltage_ln_total_raw = get_s16(5);  // 40195
-              int16_t m_ac_voltage_a_n_raw      = get_s16(6);  // 40196
-              int16_t m_ac_voltage_b_n_raw      = get_s16(7);  // 40197
-              int16_t m_ac_voltage_c_n_raw      = get_s16(8);  // 40198
-
-              int16_t m_ac_power_total_raw = -get_s16(16); // 40206
-              int16_t m_ac_power_a_raw     = -get_s16(17); // 40207
-              int16_t m_ac_power_b_raw     = -get_s16(18); // 40208
-              int16_t m_ac_power_c_raw     = -get_s16(19); // 40209
-
-              uint32_t m_exported_total_raw = get_u32(36); // 40226-40227
-              uint32_t m_exported_a_raw     = get_u32(38); // 40228-40229
-              uint32_t m_exported_b_raw     = get_u32(40); // 40230-40231
-              uint32_t m_exported_c_raw     = get_u32(42); // 40232-40233
-
-              uint32_t m_imported_total_raw = get_u32(44); // 40234-40235
-              uint32_t m_imported_a_raw     = get_u32(46); // 40236-40237
-              uint32_t m_imported_b_raw     = get_u32(48); // 40238-40239
-              uint32_t m_imported_c_raw     = get_u32(50); // 40240-40241
-
-              // ── Calculations ────────────────────────────────
-              float m_ac_current_total = static_cast<float>(m_ac_current_total_raw) * mul_current;
-              float m_ac_current_a     = static_cast<float>(m_ac_current_a_raw) * mul_current;
-              float m_ac_current_b     = static_cast<float>(m_ac_current_b_raw) * mul_current;
-              float m_ac_current_c     = static_cast<float>(m_ac_current_c_raw) * mul_current;
-
-              float m_ac_voltage_ln_total = static_cast<float>(m_ac_voltage_ln_total_raw) * mul_voltage;
-              float m_ac_voltage_a_n      = static_cast<float>(m_ac_voltage_a_n_raw) * mul_voltage;
-              float m_ac_voltage_b_n      = static_cast<float>(m_ac_voltage_b_n_raw) * mul_voltage;
-              float m_ac_voltage_c_n      = static_cast<float>(m_ac_voltage_c_n_raw) * mul_voltage;
-
-              float m_ac_power_total = static_cast<float>(m_ac_power_total_raw) * mul_power;
-              float m_ac_power_a     = static_cast<float>(m_ac_power_a_raw) * mul_power;
-              float m_ac_power_b     = static_cast<float>(m_ac_power_b_raw) * mul_power;
-              float m_ac_power_c     = static_cast<float>(m_ac_power_c_raw) * mul_power;
-
-              float m_exported_total = static_cast<float>(m_exported_total_raw) * mul_energy;
-              float m_exported_a     = static_cast<float>(m_exported_a_raw) * mul_energy;
-              float m_exported_b     = static_cast<float>(m_exported_b_raw) * mul_energy;
-              float m_exported_c     = static_cast<float>(m_exported_c_raw) * mul_energy;
-
-              float m_imported_total = static_cast<float>(m_imported_total_raw) * mul_energy;
-              float m_imported_a     = static_cast<float>(m_imported_a_raw) * mul_energy;
-              float m_imported_b     = static_cast<float>(m_imported_b_raw) * mul_energy;
-              float m_imported_c     = static_cast<float>(m_imported_c_raw) * mul_energy;
-
-              // ── Store globals ────────────────────────────────
-              id(global_m_ac_current_total) = m_ac_current_total;
-              id(global_m_ac_current_a)     = m_ac_current_a;
-              id(global_m_ac_current_b)     = m_ac_current_b;
-              id(global_m_ac_current_c)     = m_ac_current_c;
-
-              id(global_m_ac_voltage_ln_total) = m_ac_voltage_ln_total;
-              id(global_m_ac_voltage_a_n)      = m_ac_voltage_a_n;
-              id(global_m_ac_voltage_b_n)      = m_ac_voltage_b_n;
-              id(global_m_ac_voltage_c_n)      = m_ac_voltage_c_n;
-
-              id(global_m_ac_power_total) = m_ac_power_total;
-              id(global_m_ac_power_a)     = m_ac_power_a;
-              id(global_m_ac_power_b)     = m_ac_power_b;
-              id(global_m_ac_power_c)     = m_ac_power_c;
-
-              id(global_m_exported_total) = m_exported_total;
-              id(global_m_exported_a)     = m_exported_a;
-              id(global_m_exported_b)     = m_exported_b;
-              id(global_m_exported_c)     = m_exported_c;
-
-              id(global_m_imported_total) = m_imported_total;
-              id(global_m_imported_a)     = m_imported_a;
-              id(global_m_imported_b)     = m_imported_b;
-              id(global_m_imported_c)     = m_imported_c;
-
-              ESP_LOGD("modbus_meter1", "Read OK | Power Total=%.0f W | Exported Total=%.0f Wh | Imported Total=%.0f Wh",
-                       m_ac_power_total, m_exported_total, m_imported_total);
-            }
-          );
-
-          controller->queue_command(cmd);          
-
+ 
 sensor:
   # Inverter sensors (5s update)
   - platform: template
@@ -683,51 +708,51 @@ sensor:
     update_interval: 5s
     lambda: 'return id(global_ac_power_c);'
 
-  - platform: template
-    name: "AC Apparent Power A"
-    id: s_ac_power_va_a
-    device_id: ${device_id_solaredge_inverter}
-    unit_of_measurement: VA
-    device_class: apparent_power
-    state_class: measurement
-    accuracy_decimals: 0
-    icon: "mdi:lightning-bolt-circle"
-    update_interval: 5s
-    lambda: 'return id(global_ac_power_va_a);'
+  # - platform: template
+  #   name: "AC Apparent Power A"
+  #   id: s_ac_power_va_a
+  #   device_id: ${device_id_solaredge_inverter}
+  #   unit_of_measurement: VA
+  #   device_class: apparent_power
+  #   state_class: measurement
+  #   accuracy_decimals: 0
+  #   icon: "mdi:lightning-bolt-circle"
+  #   update_interval: 5s
+  #   lambda: 'return id(global_ac_power_va_a);'
 
-  - platform: template
-    name: "AC Apparent Power B"
-    id: s_ac_power_va_b
-    device_id: ${device_id_solaredge_inverter}
-    unit_of_measurement: VA
-    device_class: apparent_power
-    state_class: measurement
-    accuracy_decimals: 0
-    icon: "mdi:lightning-bolt-circle"
-    update_interval: 5s
-    lambda: 'return id(global_ac_power_va_b);'
+  # - platform: template
+  #   name: "AC Apparent Power B"
+  #   id: s_ac_power_va_b
+  #   device_id: ${device_id_solaredge_inverter}
+  #   unit_of_measurement: VA
+  #   device_class: apparent_power
+  #   state_class: measurement
+  #   accuracy_decimals: 0
+  #   icon: "mdi:lightning-bolt-circle"
+  #   update_interval: 5s
+  #   lambda: 'return id(global_ac_power_va_b);'
 
-  - platform: template
-    name: "AC Apparent Power C"
-    id: s_ac_power_va_c
-    device_id: ${device_id_solaredge_inverter}
-    unit_of_measurement: VA
-    device_class: apparent_power
-    state_class: measurement
-    accuracy_decimals: 0
-    icon: "mdi:lightning-bolt-circle"
-    update_interval: 5s
-    lambda: 'return id(global_ac_power_va_c);'
+  # - platform: template
+  #   name: "AC Apparent Power C"
+  #   id: s_ac_power_va_c
+  #   device_id: ${device_id_solaredge_inverter}
+  #   unit_of_measurement: VA
+  #   device_class: apparent_power
+  #   state_class: measurement
+  #   accuracy_decimals: 0
+  #   icon: "mdi:lightning-bolt-circle"
+  #   update_interval: 5s
+  #   lambda: 'return id(global_ac_power_va_c);'
 
-  - platform: template
-    name: "AC Power Factor"
-    id: s_ac_pf
-    device_id: ${device_id_solaredge_inverter}
-    accuracy_decimals: 2
-    unit_of_measurement: "%"
-    icon: "mdi:cosine-wave"
-    update_interval: 5s
-    lambda: 'return id(global_ac_pf);'
+  # - platform: template
+  #   name: "AC Power Factor"
+  #   id: s_ac_pf
+  #   device_id: ${device_id_solaredge_inverter}
+  #   accuracy_decimals: 2
+  #   unit_of_measurement: "%"
+  #   icon: "mdi:cosine-wave"
+  #   update_interval: 5s
+  #   lambda: 'return id(global_ac_pf);'
 
   - platform: template
     name: "DC Power"
@@ -738,7 +763,7 @@ sensor:
     state_class: measurement
     accuracy_decimals: 0
     icon: "mdi:solar-panel"
-    update_interval: 5s
+    update_interval: 10s
     lambda: 'return id(global_dc_power);'
 
   - platform: template
@@ -750,7 +775,7 @@ sensor:
     state_class: measurement
     accuracy_decimals: 2
     icon: "mdi:current-dc"
-    update_interval: 5s
+    update_interval: 10s
     lambda: 'return id(global_dc_current);'
 
   - platform: template
@@ -762,56 +787,56 @@ sensor:
     state_class: measurement
     accuracy_decimals: 1
     icon: "mdi:flash"
-    update_interval: 5s
+    update_interval: 10s
     lambda: 'return id(global_dc_voltage);'
 
-  - platform: template
-    name: "AC Frequency"
-    id: s_ac_frequency
-    device_id: ${device_id_solaredge_inverter}
-    unit_of_measurement: "Hz"
-    device_class: frequency
-    state_class: measurement
-    accuracy_decimals: 2
-    icon: "mdi:sine-wave"
-    update_interval: 5s
-    lambda: 'return id(global_ac_frequency);'
+  # - platform: template
+  #   name: "AC Frequency"
+  #   id: s_ac_frequency
+  #   device_id: ${device_id_solaredge_inverter}
+  #   unit_of_measurement: "Hz"
+  #   device_class: frequency
+  #   state_class: measurement
+  #   accuracy_decimals: 2
+  #   icon: "mdi:sine-wave"
+  #   update_interval: 5s
+  #   lambda: 'return id(global_ac_frequency);'
 
-  - platform: template
-    name: "AC Voltage AN"
-    id: s_ac_voltage_an
-    device_id: ${device_id_solaredge_inverter}
-    unit_of_measurement: "V"
-    device_class: voltage
-    state_class: measurement
-    accuracy_decimals: 1
-    icon: "mdi:alpha-a-circle-outline"
-    update_interval: 5s
-    lambda: 'return id(global_ac_voltage_an);'
+  # - platform: template
+  #   name: "AC Voltage AN"
+  #   id: s_ac_voltage_an
+  #   device_id: ${device_id_solaredge_inverter}
+  #   unit_of_measurement: "V"
+  #   device_class: voltage
+  #   state_class: measurement
+  #   accuracy_decimals: 1
+  #   icon: "mdi:alpha-a-circle-outline"
+  #   update_interval: 5s
+  #   lambda: 'return id(global_ac_voltage_an);'
 
-  - platform: template
-    name: "AC Voltage BN"
-    id: s_ac_voltage_bn
-    device_id: ${device_id_solaredge_inverter}
-    unit_of_measurement: "V"
-    device_class: voltage
-    state_class: measurement
-    accuracy_decimals: 1
-    icon: "mdi:alpha-b-circle-outline"
-    update_interval: 5s
-    lambda: 'return id(global_ac_voltage_bn);'
+  # - platform: template
+  #   name: "AC Voltage BN"
+  #   id: s_ac_voltage_bn
+  #   device_id: ${device_id_solaredge_inverter}
+  #   unit_of_measurement: "V"
+  #   device_class: voltage
+  #   state_class: measurement
+  #   accuracy_decimals: 1
+  #   icon: "mdi:alpha-b-circle-outline"
+  #   update_interval: 5s
+  #   lambda: 'return id(global_ac_voltage_bn);'
 
-  - platform: template
-    name: "AC Voltage CN"
-    id: s_ac_voltage_cn
-    device_id: ${device_id_solaredge_inverter}
-    unit_of_measurement: "V"
-    device_class: voltage
-    state_class: measurement
-    accuracy_decimals: 1
-    icon: "mdi:alpha-c-circle-outline"
-    update_interval: 5s
-    lambda: 'return id(global_ac_voltage_cn);'
+  # - platform: template
+  #   name: "AC Voltage CN"
+  #   id: s_ac_voltage_cn
+  #   device_id: ${device_id_solaredge_inverter}
+  #   unit_of_measurement: "V"
+  #   device_class: voltage
+  #   state_class: measurement
+  #   accuracy_decimals: 1
+  #   icon: "mdi:alpha-c-circle-outline"
+  #   update_interval: 5s
+  #   lambda: 'return id(global_ac_voltage_cn);'
 
   - platform: template
     name: "AC Lifetime Energy"
@@ -837,82 +862,82 @@ sensor:
     update_interval: 10s
     lambda: 'return id(global_m_ac_current_total);'
 
-  - platform: template
-    name: "AC Current A"
-    id: s_meter_ac_current_a
-    device_id: ${device_id_solaredge_meter1}
-    unit_of_measurement: "A"
-    device_class: current
-    state_class: measurement
-    accuracy_decimals: 2
-    update_interval: 10s
-    lambda: 'return id(global_m_ac_current_a);'
+  # - platform: template
+  #   name: "AC Current A"
+  #   id: s_meter_ac_current_a
+  #   device_id: ${device_id_solaredge_meter1}
+  #   unit_of_measurement: "A"
+  #   device_class: current
+  #   state_class: measurement
+  #   accuracy_decimals: 2
+  #   update_interval: 10s
+  #   lambda: 'return id(global_m_ac_current_a);'
 
-  - platform: template
-    name: "AC Current B"
-    id: s_meter_ac_current_b
-    device_id: ${device_id_solaredge_meter1}
-    unit_of_measurement: "A"
-    device_class: current
-    state_class: measurement
-    accuracy_decimals: 2
-    update_interval: 10s
-    lambda: 'return id(global_m_ac_current_b);'
+  # - platform: template
+  #   name: "AC Current B"
+  #   id: s_meter_ac_current_b
+  #   device_id: ${device_id_solaredge_meter1}
+  #   unit_of_measurement: "A"
+  #   device_class: current
+  #   state_class: measurement
+  #   accuracy_decimals: 2
+  #   update_interval: 10s
+  #   lambda: 'return id(global_m_ac_current_b);'
 
-  - platform: template
-    name: "AC Current C"
-    id: s_meter_ac_current_c
-    device_id: ${device_id_solaredge_meter1}
-    unit_of_measurement: "A"
-    device_class: current
-    state_class: measurement
-    accuracy_decimals: 2
-    update_interval: 10s
-    lambda: 'return id(global_m_ac_current_c);'
+  # - platform: template
+  #   name: "AC Current C"
+  #   id: s_meter_ac_current_c
+  #   device_id: ${device_id_solaredge_meter1}
+  #   unit_of_measurement: "A"
+  #   device_class: current
+  #   state_class: measurement
+  #   accuracy_decimals: 2
+  #   update_interval: 10s
+  #   lambda: 'return id(global_m_ac_current_c);'
 
-  - platform: template
-    name: "AC Voltage LN Total"
-    id: s_meter_ac_voltage_ln_total
-    device_id: ${device_id_solaredge_meter1}
-    unit_of_measurement: "V"
-    device_class: voltage
-    state_class: measurement
-    accuracy_decimals: 1
-    update_interval: 10s
-    lambda: 'return id(global_m_ac_voltage_ln_total);'
+  # - platform: template
+  #   name: "AC Voltage LN Total"
+  #   id: s_meter_ac_voltage_ln_total
+  #   device_id: ${device_id_solaredge_meter1}
+  #   unit_of_measurement: "V"
+  #   device_class: voltage
+  #   state_class: measurement
+  #   accuracy_decimals: 1
+  #   update_interval: 10s
+  #   lambda: 'return id(global_m_ac_voltage_ln_total);'
 
-  - platform: template
-    name: "AC Voltage A N"
-    id: s_meter_ac_voltage_a_n
-    device_id: ${device_id_solaredge_meter1}
-    unit_of_measurement: "V"
-    device_class: voltage
-    state_class: measurement
-    accuracy_decimals: 1
-    update_interval: 10s
-    lambda: 'return id(global_m_ac_voltage_a_n);'
+  # - platform: template
+  #   name: "AC Voltage A N"
+  #   id: s_meter_ac_voltage_a_n
+  #   device_id: ${device_id_solaredge_meter1}
+  #   unit_of_measurement: "V"
+  #   device_class: voltage
+  #   state_class: measurement
+  #   accuracy_decimals: 1
+  #   update_interval: 10s
+  #   lambda: 'return id(global_m_ac_voltage_a_n);'
 
-  - platform: template
-    name: "AC Voltage B N"
-    id: s_meter_ac_voltage_b_n
-    device_id: ${device_id_solaredge_meter1}
-    unit_of_measurement: "V"
-    device_class: voltage
-    state_class: measurement
-    accuracy_decimals: 1
-    update_interval: 10s
-    lambda: 'return id(global_m_ac_voltage_b_n);'
+  # - platform: template
+  #   name: "AC Voltage B N"
+  #   id: s_meter_ac_voltage_b_n
+  #   device_id: ${device_id_solaredge_meter1}
+  #   unit_of_measurement: "V"
+  #   device_class: voltage
+  #   state_class: measurement
+  #   accuracy_decimals: 1
+  #   update_interval: 10s
+  #   lambda: 'return id(global_m_ac_voltage_b_n);'
 
-  - platform: template
-    name: "AC Voltage C N"
-    id: s_meter_ac_voltage_c_n
-    device_id: ${device_id_solaredge_meter1}
-    unit_of_measurement: "V"
-    device_class: voltage
-    state_class: measurement
-    accuracy_decimals: 1
-    update_interval: 10s
-    lambda: 'return id(global_m_ac_voltage_c_n);'
+  # - platform: template
+  #   name: "AC Voltage C N"
+  #   id: s_meter_ac_voltage_c_n
+  #   device_id: ${device_id_solaredge_meter1}
+  #   unit_of_measurement: "V"
+  #   device_class: voltage
+  #   state_class: measurement
+  #   accuracy_decimals: 1
+  #   update_interval: 10s
+  #   lambda: 'return id(global_m_ac_voltage_c_n);'
 
   - platform: template
     name: "AC Real Power Total"
@@ -922,7 +947,7 @@ sensor:
     device_class: power
     state_class: measurement
     accuracy_decimals: 0
-    update_interval: 10s
+    update_interval: 1.5s
     lambda: 'return id(global_m_ac_power_total);'
 
   - platform: template
@@ -933,7 +958,7 @@ sensor:
     device_class: power
     state_class: measurement
     accuracy_decimals: 0
-    update_interval: 10s
+    update_interval: 1.5s
     lambda: 'return id(global_m_ac_power_a);'
 
   - platform: template
@@ -944,7 +969,7 @@ sensor:
     device_class: power
     state_class: measurement
     accuracy_decimals: 0
-    update_interval: 10s
+    update_interval: 1.5s
     lambda: 'return id(global_m_ac_power_b);'
 
   - platform: template
@@ -955,7 +980,7 @@ sensor:
     device_class: power
     state_class: measurement
     accuracy_decimals: 0
-    update_interval: 10s
+    update_interval: 1.5s
     lambda: 'return id(global_m_ac_power_c);'
 
   - platform: template
@@ -970,42 +995,6 @@ sensor:
     lambda: 'return id(global_m_exported_total) / 1000.0;'
 
   - platform: template
-    name: "Exported Energy A"
-    id: s_meter_exported_a
-    device_id: ${device_id_solaredge_meter1}
-    unit_of_measurement: "kWh"
-    device_class: energy
-    state_class: total_increasing
-    accuracy_decimals: 0
-    update_interval: 10s
-    disabled_by_default: true
-    lambda: 'return id(global_m_exported_a) / 1000.0;'
-
-  - platform: template
-    name: "Exported Energy B"
-    id: s_meter_exported_b
-    device_id: ${device_id_solaredge_meter1}
-    unit_of_measurement: "kWh"
-    device_class: energy
-    state_class: total_increasing
-    accuracy_decimals: 0
-    update_interval: 10s
-    disabled_by_default: true
-    lambda: 'return id(global_m_exported_b) / 1000.0;'
-
-  - platform: template
-    name: "Exported Energy C"
-    id: s_meter_exported_c
-    device_id: ${device_id_solaredge_meter1}
-    unit_of_measurement: "kWh"
-    device_class: energy
-    state_class: total_increasing
-    accuracy_decimals: 0
-    update_interval: 10s
-    disabled_by_default: true
-    lambda: 'return id(global_m_exported_c) / 1000.0;'
-
-  - platform: template
     name: "Imported Energy Total"
     id: s_meter_imported_total
     device_id: ${device_id_solaredge_meter1}
@@ -1015,39 +1004,3 @@ sensor:
     accuracy_decimals: 0
     update_interval: 10s
     lambda: 'return id(global_m_imported_total) / 1000.0;'
-
-  - platform: template
-    name: "Imported Energy A"
-    id: s_meter_imported_a
-    device_id: ${device_id_solaredge_meter1}
-    unit_of_measurement: "kWh"
-    device_class: energy
-    state_class: total_increasing
-    accuracy_decimals: 0
-    update_interval: 10s
-    disabled_by_default: true
-    lambda: 'return id(global_m_imported_a) / 1000.0;'
-
-  - platform: template
-    name: "Imported Energy B"
-    id: s_meter_imported_b
-    device_id: ${device_id_solaredge_meter1}
-    unit_of_measurement: "kWh"
-    device_class: energy
-    state_class: total_increasing
-    accuracy_decimals: 0
-    update_interval: 10s
-    disabled_by_default: true
-    lambda: 'return id(global_m_imported_b) / 1000.0;'
-
-  - platform: template
-    name: "Imported Energy C"
-    id: s_meter_imported_c
-    device_id: ${device_id_solaredge_meter1}
-    unit_of_measurement: "kWh"
-    device_class: energy
-    state_class: total_increasing
-    accuracy_decimals: 0
-    update_interval: 10s
-    disabled_by_default: true
-    lambda: 'return id(global_m_imported_c) / 1000.0;'

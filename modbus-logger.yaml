@@ -10,7 +10,7 @@ esp32:
 
 # Enable logging
 logger:
-  level: INFO
+  level: DEBUG
   baud_rate: 0
   logs:
     sensor: INFO
@@ -169,11 +169,11 @@ uart:
   # GPIO7 - TX to RX of bottom RS485 module
   # GPIO9 - RX to TX of bottom RS485 module
   - id: rs485
-    tx_pin: GPIO7
-    rx_pin: GPIO9
+    tx_pin: GPIO6
+    rx_pin: GPIO5
     baud_rate: 115200
-    debug:
-      direction: BOTH
+    #debug:
+    #  direction: BOTH
 
 modbus:
   send_wait_time: 200ms
@@ -494,7 +494,7 @@ interval:
 
           controller->queue_command(cmd);
 
-  - interval: 2s
+  - interval: 1.5s
     then:
       - lambda: |-
           auto *controller = id(solaredge_controller);
