@@ -1,3 +1,5 @@
+# This device provides Solaredge RTU readings as fake meters for Deye as two Eastron SDM630 meters. 
+
 # https://knowledge-center.solaredge.com/sites/kc/files/sunspec-implementation-technical-note.pdf pp.15-17
 # CPU Firmware 4.22.44 SolarEdge TCP timeout issue https://github.com/evcc-io/evcc/issues/25424 and https://www.solaredge.com/en/support/residential-inverters-firmware
 #  0 40071 40072 1 I_AC_Current uint16 Amps AC Total Current value
@@ -123,7 +125,7 @@
 modbus_controller:
   - id: solaredge_controller
     address: 0x03
-    modbus_id: mod_bus
+    modbus_id: ${modbus_id_solaredge}
     update_interval: never
     setup_priority: -10
     on_command_sent:
@@ -287,8 +289,8 @@ globals:
 # Mapping of Inverter sensors to SDM630 modbus registers
 
 modbus_server:
-  - id: utility_meter
-    modbus_id: ${modbus_id}
+  - id: utility_meter # NB This meter must not be enabled when peak shaving is used
+    modbus_id: ${modbus_id_meter}
     address: 0x01 # Meter address
     server_registers:
       - address: 0x000C # Phase 1 power.
@@ -312,7 +314,7 @@ modbus_server:
         read_lambda: |-
           return id(global_m_exported_total);
   - id: grid_side_inverter_meter_2
-    modbus_id: ${modbus_id}
+    modbus_id: ${modbus_id_meter}
     address: 0x02 # Meter address
     server_registers:
       - address: 0x000C # Phase 1 power.
@@ -341,15 +343,16 @@ modbus_server:
           return id(global_ac_power_va_c);
 
 interval:
-  - interval: 1.1s
+  - interval: 1.5s
     then:
       - lambda: |-
+          static uint16_t skip = 2;
+          if (skip++ % 2 != 0) return;
           auto *controller = id(solaredge_controller);
           static bool pending = false; 
           
           if (pending) {
             ESP_LOGW("modbus_solaredge", "Pending reading meter. Skipping...");
-            //return;                    // avoid queuing while previous command in flight
           }
           pending = true;
 
@@ -479,12 +482,7 @@ interval:
 
           controller->queue_command(cmd);
           ESP_LOGD("timing", "Solaredge METER command queued...");
-
-  #- interval: 1s
-  #  then:
       - lambda: |-
-          static uint16_t skip = 0;
-          if (skip++ %2 != 0) return;
           auto *controller = id(solaredge_controller);
           uint16_t start_addr = 40071;  // 0-based protocol address for register 40072 (base 1)
           uint16_t count = 32;          // Covers up to ~40110, includes freq, energy, voltages
@@ -492,7 +490,6 @@ interval:
           static bool pending = false;
           if (pending) {
             ESP_LOGW("modbus_solaredge", "Pending reading inverter. Skipping...");
-           // return;                    // avoid queuing while previous command in flight
           }
           pending = true;
 
@@ -657,9 +654,10 @@ interval:
           controller->queue_command(cmd);
           ESP_LOGD("timing", "Solaredge command queued...");
 
+
  
 sensor:
-  # Inverter sensors (5s update)
+  # Inverter sensors (5s update) for Grid Tie Meter2
   - platform: template
     name: "AC Power Total"
     id: s_ac_power_total
@@ -847,7 +845,7 @@ sensor:
     state_class: total_increasing
     accuracy_decimals: 0
     icon: "mdi:lightning-bolt-circle"
-    update_interval: 5s
+    update_interval: 10s
     lambda: 'return id(global_ac_energy_wh) / 1000.0;'
 
   # Meter1 sensors (10s update) – "Meter" removed from names
@@ -947,7 +945,7 @@ sensor:
     device_class: power
     state_class: measurement
     accuracy_decimals: 0
-    update_interval: 1.5s
+    update_interval: 5s
     lambda: 'return id(global_m_ac_power_total);'
 
   - platform: template
@@ -958,7 +956,7 @@ sensor:
     device_class: power
     state_class: measurement
     accuracy_decimals: 0
-    update_interval: 1.5s
+    update_interval: 5s
     lambda: 'return id(global_m_ac_power_a);'
 
   - platform: template
@@ -969,7 +967,7 @@ sensor:
     device_class: power
     state_class: measurement
     accuracy_decimals: 0
-    update_interval: 1.5s
+    update_interval: 5s
     lambda: 'return id(global_m_ac_power_b);'
 
   - platform: template
@@ -980,7 +978,7 @@ sensor:
     device_class: power
     state_class: measurement
     accuracy_decimals: 0
-    update_interval: 1.5s
+    update_interval: 5s
     lambda: 'return id(global_m_ac_power_c);'
 
   - platform: template
@@ -991,7 +989,7 @@ sensor:
     device_class: energy
     state_class: total_increasing
     accuracy_decimals: 0
-    update_interval: 10s
+    update_interval: 30s
     lambda: 'return id(global_m_exported_total) / 1000.0;'
 
   - platform: template
@@ -1002,5 +1000,5 @@ sensor:
     device_class: energy
     state_class: total_increasing
     accuracy_decimals: 0
-    update_interval: 10s
+    update_interval: 30s
     lambda: 'return id(global_m_imported_total) / 1000.0;'
