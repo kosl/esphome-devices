@@ -1,41 +1,83 @@
 substitutions:
   friendly_name: Tesla BLE
   device_name: tesla-ble
-  device_description: Tesla BLE
   ble_mac_address: !secret ble_mac_address
   tesla_vin: !secret tesla_vin
   charging_amps_max: "16"
   board: "esp32-c3-devkitm-1"
   variant: "ESP32C3"
   ble_presence_timeout: 15s
-  #tesla_ble_component: "github://PedroKTFC/esphome-tesla-ble@repair"
-  #BLE_library: "https://github.com/PedroKTFC/tesla-ble.git#repair"
-  
+  device_description: Interact with Tesla vehicles over BLE using ESPHome and Home Assistant
+  flash_size: "4MB"
+  BLE_library: "https://github.com/PedroKTFC/tesla-ble.git"
+  tesla_ble_component: "github://PedroKTFC/esphome-tesla-ble"
+
+esp32:
+  board: $board
+  variant: $variant
+  flash_size: $flash_size
+  framework:
+    type: esp-idf
+
 logger:
   level: INFO
+  logs:
+    sensor: INFO
+
+ota:
+  platform: esphome
+  password: !secret ota_password
 
 wifi:
   output_power: 8.5dB # Minimise self interference
-  ssid: !secret wifi_eteradxa_ssid
-  password: !secret wifi_password  
+  networks:
+    - ssid: !secret wifi_eteradxa_ssid
+      password: !secret wifi_eteradxa_password
+      bssid: '5a:cd:0c:21:8e:d9'
+      hidden: True
+      priority: 5
+    - ssid: !secret wifi_etera_ssid
+      password: !secret wifi_password
+    - ssid: !secret wifi_mansarda_ssid
+      password: !secret wifi_password
+    - ssid: !secret wifi_garaza_ssid
+      password: !secret wifi_password  
   power_save_mode: none  # Better reliability over power saving
+  min_auth_mode: WPA
+  fast_connect: True
 
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
     ssid: "Tesla-BLE Fallback Hotspot"
-    password: "40oVQAvheesN"
+    password: !secret wifi_hotspot_password
 
+captive_portal:
 
 api:
   encryption:
     key: !secret api_encryption_key # use "key: !secret your_secret_key_name" for greater security
 
+external_components:
+  - source: $tesla_ble_component
+    components: [tesla_ble_vehicle, tesla_ble_listener]
+
+
 packages:
   remote_package_files:
     url: https://github.com/PedroKTFC/esphome-tesla-ble/
     path: packages
-    files: [base.yml, common.yml, project.yml, client.yml]
-    ref: v2026.2.0
+    files: [common.yml, project.yml, client.yml]
+    ref: v2026.2.1
+  bms1: !include
+    file: device-pace-bms.yaml
+    vars:
+      modbus_controller_id: pace_bms1
+      device_id: device_pace_bms1
+  bms2: !include
+    file: device-pace-bms.yaml
+    vars:
+      modbus_controller_id: pace_bms2
+      device_id: device_pace_bms2
 
   # listener: github://PedroKTFC/esphome-tesla-ble/packages/listener.yml # Uncomment this to scan find your VIN BLE MAC address
 
@@ -69,6 +111,18 @@ light:
       ignore_strapping_warning: true 
     restore_mode: ALWAYS_OFF
 
+text_sensor:
+  - platform: wifi_info
+    ssid:
+      name: "Connected SSID"
+      entity_category: diagnostic  
+    bssid:
+      name: Device Connected BSSID
+    scan_results:
+      name: Device Latest Scan Results      
+#    power_save_mode:
+#     name: Device Wifi Power Save Mode
+
 # Define the button on GPIO10
 binary_sensor:
   - platform: gpio
@@ -78,6 +132,8 @@ binary_sensor:
       inverted: true      # Button will be active LOW (pressed when the pin is low)
     name: "MENU"
     icon: "mdi:radiobox-blank"
+    filters:
+      - delayed_off: 10ms
     on_press:
       - light.toggle: esp_status_led  # Toggle the internal LED when the button is pressed
     on_double_click:
@@ -92,6 +148,8 @@ binary_sensor:
       inverted: true      # Button will be active LOW (pressed when the pin is low)
     name: "ENTER"
     icon: "mdi:car-door-lock-open"
+    filters:
+      - delayed_off: 10ms
     on_press:
       - light.toggle: esp_status_led  # Toggle the internal LED when the button is pressed
 # Define the button on GPIO1
@@ -102,6 +160,8 @@ binary_sensor:
       inverted: true      # Button will be active LOW (pressed when the pin is low)
     name: "DOWN"
     icon: "mdi:radiobox-blank"
+    filters:
+      - delayed_off: 10ms
     on_press:
       - light.toggle: esp_status_led  # Toggle the internal LED when the button is pressed
 # Define the button on GPIO3
@@ -112,14 +172,66 @@ binary_sensor:
       inverted: true      # Button will be active LOW (pressed when the pin is low)
     name: "ESC"
     icon: "mdi:ev-plug-type2"
+    filters:
+      - delayed_off: 10ms
     on_press:
       - light.toggle: esp_status_led  # Toggle the internal LED when the button is pressed
     on_double_click: 
       - lambda: id(tesla_ble_vehicle_id)->sendVCSECClosureMoveRequestMessage (VCSEC_ClosureMoveRequest_chargePort_tag, VCSEC_ClosureMoveType_E_CLOSURE_MOVE_TYPE_OPEN);
 
-
-
 button:
   - platform: restart
     name: "Reboot Device"
     id: reboot_device
+
+    
+
+###### PACE BMS within TEZE 16-string packs
+# https://tezepower.com/products/tezepower-51.2v-48v-200ah-16s-powerwall-lifepo4-lithium-battery-10kwh-wall-mounted-battery-storage-system
+esphome:
+  project:
+    name: PedroKTFC.esphome-tesla-ble
+    version: "2026.2.1"
+  name: ${device_name}
+  name_add_mac_suffix: false
+  friendly_name: ${friendly_name}
+  libraries:
+    - TeslaBLE=${BLE_library}
+  devices: # https://esphome.io/components/esphome/#sub-devices
+    - id: device_pace_bms1
+      name: "PACE BMS Pack 1"
+    - id: device_pace_bms2
+      name: "PACE BMS Pack 2"
+  on_boot:
+    priority: 600  # Medium-high priority (after WiFi connects)
+    then:
+      - light.turn_on:
+          id: esp_status_led
+
+
+uart:
+  - id: rs485
+    tx_pin: GPIO7 # green-white
+    rx_pin: GPIO6 # green 
+    baud_rate: 9600
+    rx_buffer_size: 256    
+    debug:
+      direction: BOTH
+      dummy_receiver: false
+
+modbus:
+  send_wait_time: 200ms
+  uart_id: rs485
+  id: mod_bus
+
+modbus_controller:
+  - id: pace_bms1
+    address: 0x01
+    modbus_id: mod_bus
+    command_throttle: 200ms
+    update_interval: 30s
+  - id: pace_bms2
+    address: 0x02
+    modbus_id: mod_bus
+    command_throttle: 200ms
+    update_interval: 30s

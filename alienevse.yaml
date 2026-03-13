@@ -1,5 +1,6 @@
 esphome:
   name: alienevse
+  friendly_name: Alien EVSE
   on_boot: 
     then:
       - output.turn_on: cp_ev_out_pwm
@@ -31,14 +32,20 @@ ota:
 
 wifi:
   networks:
+    - ssid: !secret wifi_eteradxa_ssid
+      password: !secret wifi_eteradxa_password
+      bssid: '5a:cd:0c:21:8e:d9'
+      hidden: True
+      priority: 5
+    - ssid: !secret wifi_etera_ssid
+      password: !secret wifi_password
     - ssid: !secret wifi_mansarda_ssid
       password: !secret wifi_password
     - ssid: !secret wifi_garaza_ssid
       password: !secret wifi_password
-    - ssid: !secret wifi_eteradxa_ssid
-      password: !secret wifi_password
   output_power: 8.5dB
   power_save_mode: none  # Better reliability over power saving
+  min_auth_mode: WPA
 
   ap:
     ssid: "AlienEVSE Fallback Hotspot"
@@ -124,6 +131,17 @@ text_sensor:
     name: "State"
     entity_category: diagnostic
     update_interval: never
+  - platform: wifi_info
+    ssid:
+      name: "Connected SSID"
+      entity_category: diagnostic  
+    bssid:
+      name: Device Connected BSSID
+    scan_results:
+      name: Device Latest Scan Results      
+#    power_save_mode:
+#     name: Device Wifi Power Save Mode
+
 
 # Control Pilot voltage sampling at ADC at GPIO0 occurs 20 µs after PWM (ledc at GPIO10) rising edge
 # Heartbeat sampling at 500 Hz in DC mode (when PWM is disabled) 

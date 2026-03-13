@@ -1,0 +1,126 @@
+substitutions:
+  friendly_name: tesla-ble-test
+  device_name: tesla-ble-test
+  device_description: Tesla Logger
+  ble_mac_address: !secret ble_mac_address
+  tesla_vin: !secret tesla_vin
+  charging_amps_max: "16"
+  board: "esp32-c3-devkitm-1"
+  variant: "ESP32C3"
+  ble_presence_timeout: 15s
+
+esphome:
+  name: modbus-logger-tesla
+  friendly_name: modbus-logger-tesla
+  devices: # https://esphome.io/components/esphome/#sub-devices
+    - id: device_pace_bms1
+      name: "PACE BMS Pack 1"
+    - id: device_pace_bms2
+      name: "PACE BMS Pack 2"
+      
+
+esp32:
+  board: esp32-c3-devkitm-1
+  variant: ESP32C3
+  framework:
+    type: esp-idf
+
+# Enable logging
+logger:
+  level: INFO
+  logs:
+    sensor: INFO
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "TH7gnzlOBMC3ukK2ohQawQ5I7CSJ3pmVk3xmp5T8k3Q="
+
+ota:
+  - platform: esphome
+    password: "18d5989648c58cc776f8d5492801db47"
+
+wifi:
+  output_power: 10.5dB # Minimise self interference
+  ssid: !secret wifi_eteradxa_ssid
+  password: ''
+  power_save_mode: none  # Better reliability over power saving
+  #min_auth_mode: WPA
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Tesla-BLE Fallback Hotspot"
+    password: "40oVQAvheesN"
+
+captive_portal:
+
+
+uart:
+  # GPIO6 - TX to TX of RS485 module
+  # GPIO5 - RX to RX of RS485 module
+  - id: rs485
+    tx_pin: GPIO6
+    rx_pin: GPIO5
+    baud_rate: 9600
+    rx_buffer_size: 256
+    debug:
+      direction: BOTH
+      dummy_receiver: false
+
+modbus:
+  send_wait_time: 200ms
+  uart_id: rs485
+  id: mod_bus
+
+modbus_controller:
+  - id: pace_bms1
+    address: 0x01
+    modbus_id: mod_bus
+    command_throttle: 200ms
+    update_interval: 30s
+  - id: pace_bms2
+    address: 0x02
+    modbus_id: mod_bus
+    command_throttle: 200ms
+    update_interval: 30s
+
+# https://github.com/syssi/esphome-pace-bms/blob/main/multiple-batteries-example/pack.yaml
+
+packages:
+ bms1: !include
+   file: device-pace-bms.yaml
+   vars:
+     modbus_controller_id: pace_bms1
+     device_id: device_pace_bms1
+ bms2: !include
+   file: device-pace-bms.yaml
+   vars:
+     modbus_controller_id: pace_bms2
+     device_id: device_pace_bms2
+ remote_package_files:
+    url: https://github.com/PedroKTFC/esphome-tesla-ble/
+    path: packages
+    files: [base.yml, common.yml, project.yml, client.yml]
+    ref: v2026.2.1
+
+
+sensor:
+# Diagnostic
+  - platform: wifi_signal
+    name: "WiFi Signal Strength"
+    id: wifi_rssi
+    update_interval: 1min
+    unit_of_measurement: "dBm"
+    accuracy_decimals: 0
+    device_class: signal_strength
+    entity_category: diagnostic
+
+# Enable built-in status LED on GPIO8
+light:
+  - platform: status_led
+    id: esp_status_led
+    pin:
+      number: GPIO8
+      inverted: true
+      ignore_strapping_warning: true
+    entity_category: diagnostic

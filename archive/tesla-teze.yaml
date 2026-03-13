@@ -1,0 +1,251 @@
+# esphome:
+#   name: tesla-teze
+#   friendly_name: tesla-teze
+
+# esp32:
+#   board: esp32-s3-devkitc-1
+#   framework:
+#     type: esp-idf
+
+# # Enable logging
+# logger:
+
+# # Enable Home Assistant API
+# api:
+#   encryption:
+#     key: "ICgJKcL4CMvdcB1mqvfkURj3aYKFIw95F1lDsZQZE8c="
+
+# ota:
+#   - platform: esphome
+#     password: "1a6c3cd6b3ee141e7f397c2fc9d4e1cc"
+
+# wifi:
+#   ssid: !secret wifi_ssid
+#   password: !secret wifi_password
+
+#   # Enable fallback hotspot (captive portal) in case wifi connection fails
+#   ap:
+#     ssid: "Tesla-Teze Fallback Hotspot"
+#     password: "49s85A5nR3iL"
+
+# captive_portal:
+
+substitutions:
+  friendly_name: Tesla & Teze
+  device_name: tesla-teze
+  device_description: Tesla BLE
+  ble_mac_address: !secret ble_mac_address
+  tesla_vin: !secret tesla_vin
+  charging_amps_max: "16"
+  board: "esp32-s3-fh4r2"
+  #board: esp32-s3-devkitc-1
+  variant: esp32s3
+  ble_presence_timeout: 15s
+  #tesla_ble_component: "github://PedroKTFC/esphome-tesla-ble@repair"
+  #BLE_library: "https://github.com/PedroKTFC/tesla-ble.git#repair"
+  
+logger:
+  level: INFO
+
+wifi:
+  output_power: 10.5dB # Minimise self interference
+  ssid: !secret wifi_eteradxa_ssid
+  password: !secret wifi_password  
+  power_save_mode: none  # Better reliability over power saving
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Tesla-Teze Fallback Hotspot"
+    password: "49s85A5nR3iL"
+
+  on_connect: 
+    then:
+      - light.turn_on:
+          id: esp_status_led
+          red: 0%
+          green: 80%
+          blue: 0%
+          brightness: 80%
+
+captive_portal:
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+    
+packages:
+  remote_package_files:
+    url: https://github.com/PedroKTFC/esphome-tesla-ble/
+    path: packages
+    files: [base.yml, common.yml, project.yml, client.yml]
+    ref: v2026.2.1
+  bms1: !include
+    file: device-pace-bms.yaml
+    vars:
+      modbus_controller_id: pace_bms1
+      device_id: device_pace_bms1
+  bms2: !include
+    file: device-pace-bms.yaml
+    vars:
+      modbus_controller_id: pace_bms2
+      device_id: device_pace_bms2
+
+  # listener: github://PedroKTFC/esphome-tesla-ble/packages/listener.yml # Uncomment this to scan find your VIN BLE MAC address
+
+# The following shows how to change the name of a sensor and how to change any of the parameters.
+# tesla_ble_vehicle: # THIS LINE MUST BE UNCOMMENTED IF ANY OF THE CHANGES BELOW ARE WANTED
+
+# You can change any sensor name in Home Assistant. However you can also change them here if it is more convenient for you.
+# For a list of all sensors etc, see the file client.yml in the packages directory.
+#  odometer: # miles by default, edit the entity in home assistant if you need km
+#    name: "Odometro" # Rename if desired
+# End of renaming
+
+# At the time of writing, these are set to the default values. If you require a different value, uncomment and edit the value
+#  update_interval: 10s # Base polling interval, used for VCSEC sensors
+#  post_wake_poll_time: 300 # How long to poll for data after car awakes at poll_data_period speed (s)
+#  poll_data_period: 60 # Polling interval after awakening during post_wake_poll_time interval (s)
+#  poll_charging_period: 10 # Period to poll for data when charging (s)
+#  poll_asleep_period: 60 # Period to poll for data when asleep (s)
+#  ble_disconnected_min_time: 300 # Minimum time BLE must be disconnected before sensors are Unknown (s)
+#  fast_poll_if_unlocked: 1 # if != 0, fast polls are enabled when unlocked
+
+
+# light:
+#   - platform: status_led
+#     name: "Status LED"
+#     id: esp_status_led
+#     icon: "mdi:alarm-light"
+#     pin:
+#       number: GPIO8
+#       inverted: true
+#       ignore_strapping_warning: true 
+#     restore_mode: ALWAYS_OFF
+
+
+# Enable built-in status LED on GPIO8
+light:
+  - platform: esp32_rmt_led_strip
+    rgb_order: GRB
+    chipset: ws2812
+    pin: 
+      number: GPIO21
+    num_leds: 1
+    name: "Onboard RGB LED"
+    id: esp_status_led
+    entity_category: diagnostic
+
+# # Define the button on GPIO10
+# binary_sensor:
+#   - platform: gpio
+#     pin:
+#       number: GPIO10
+#       mode: INPUT
+#       inverted: true      # Button will be active LOW (pressed when the pin is low)
+#     name: "MENU"
+#     icon: "mdi:radiobox-blank"
+#     filters:
+#       - delayed_off: 10ms
+#     on_press:
+#       - light.toggle: esp_status_led  # Toggle the internal LED when the button is pressed
+#     on_double_click:
+#       - logger.log: "Double-click detected on MENU button! Rebooting..."
+#       - delay: 500ms
+#       - button.press: reboot_device
+# # Define the button on GPIO0
+#   - platform: gpio
+#     pin:
+#       number: GPIO0
+#       mode:
+#         input: true
+#         pullup: true
+#       inverted: true      # Button will be active LOW (pressed when the pin is low)
+#     name: "ENTER"
+#     icon: "mdi:car-door-lock-open"
+#     filters:
+#       - delayed_off: 10ms
+#     on_press:
+#       - light.toggle: esp_status_led  # Toggle the internal LED when the button is pressed
+# # Define the button on GPIO1
+#   - platform: gpio
+#     pin:
+#       number: GPIO5
+#       mode:
+#         input: true
+#         pullup: true
+#       inverted: true      # Button will be active LOW (pressed when the pin is low)
+#     name: "DOWN"
+#     icon: "mdi:radiobox-blank"
+#     filters:
+#       - delayed_off: 10ms
+#     on_press:
+#       - light.toggle: esp_status_led  # Toggle the internal LED when the button is pressed
+# # Define the button on GPIO3
+#   - platform: gpio
+#     pin:
+#       number: GPIO3
+#       mode:
+#         input: true
+#         pullup: true
+#       inverted: true      # Button will be active LOW (pressed when the pin is low)
+#     name: "ESC"
+#     icon: "mdi:ev-plug-type2"
+#     filters:
+#       - delayed_off: 10ms
+#     on_press:
+#       - light.toggle: esp_status_led  # Toggle the internal LED when the button is pressed
+#     on_double_click: 
+#       - lambda: id(tesla_ble_vehicle_id)->sendVCSECClosureMoveRequestMessage (VCSEC_ClosureMoveRequest_chargePort_tag, VCSEC_ClosureMoveType_E_CLOSURE_MOVE_TYPE_OPEN);
+
+
+
+button:
+  - platform: restart
+    name: "Reboot Device"
+    id: reboot_device
+
+##### PACE BMS
+esphome:
+  name: tesla-teze
+  devices: # https://esphome.io/components/esphome/#sub-devices
+    - id: device_pace_bms1
+      name: "PACE BMS Pack 1"
+    - id: device_pace_bms2
+      name: "PACE BMS Pack 2"
+  on_boot:
+    priority: 600  # Medium-high priority (after WiFi connects)
+    then:
+      - light.turn_on:
+          id: esp_status_led
+          red: 80%
+          green: 0%
+          blue: 0%
+          brightness: 80%
+
+
+uart:
+  - id: rs485
+    tx_pin: GPIO1
+    rx_pin: GPIO2
+    baud_rate: 9600
+    debug:
+      direction: BOTH
+      # dummy_receiver: false
+
+modbus:
+  send_wait_time: 200ms
+  uart_id: rs485
+  id: mod_bus
+
+modbus_controller:
+  - id: pace_bms1
+    address: 0x01
+    modbus_id: mod_bus
+    command_throttle: 200ms
+    update_interval: 30s
+  - id: pace_bms2
+    address: 0x02
+    modbus_id: mod_bus
+    command_throttle: 200ms
+    update_interval: 30s
+ 
