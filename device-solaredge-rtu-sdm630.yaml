@@ -375,7 +375,7 @@ interval:
             }
           };
 
-          auto cmd = esphome::modbus_controller::ModbusCommandItem::create_read_command(
+          static auto cmd = esphome::modbus_controller::ModbusCommandItem::create_read_command(
             controller,
             ModbusRegisterType::HOLDING,
             start_addr,
@@ -482,7 +482,7 @@ interval:
             }
           );
 
-          controller->queue_command(cmd);
+          cmd.send(); // https://github.com/esphome/esphome/pull/12614
           ESP_LOGD("timing", "Solaredge METER command queued...");
       - lambda: |-
           auto *controller = id(solaredge_controller);
@@ -495,7 +495,7 @@ interval:
           }
           pending = true;
 
-          auto cmd = esphome::modbus_controller::ModbusCommandItem::create_read_command(
+          static auto cmd = esphome::modbus_controller::ModbusCommandItem::create_read_command(
             controller,
             ModbusRegisterType::HOLDING,
             start_addr,
@@ -655,7 +655,7 @@ interval:
             }
           );
 
-          controller->queue_command(cmd);
+          cmd.send(); // https://github.com/esphome/esphome/pull/12614
           ESP_LOGD("timing", "Solaredge command queued...");
 
 

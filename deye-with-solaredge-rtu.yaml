@@ -7,7 +7,7 @@
 esphome:
   name: deye-bridge
   friendly_name: Deye & Solaredge
-  min_version: 2026.3.0
+  min_version: 2026.3.1
   devices: # https://esphome.io/components/esphome/#sub-devices
     - id: device_solaredge
       name: "Solaredge Inverter"
@@ -30,14 +30,14 @@ esp32:
 
 # Enable logging
 logger:
-  level: DEBUG
+  level: INFO
   baud_rate: 0
   logs:
     sensor: INFO
     modbus_controller.sensor: INFO
     timing: WARN
     solaredge_summary: INFO
-    modbus_server: DEBUG
+    modbus_server: INFO
     health: WARN
 
 api: # Enable Home Assistant API
@@ -74,7 +74,7 @@ captive_portal:
 
 external_components:
   # https://github.com/esphome/esphome/issues/12183
-  - source: github://pr#11969
+  - source: github://pr#12614 #11969
     components: [uart, modbus, modbus_controller, modbus_server]
     refresh: 1h
   - source:
@@ -95,7 +95,9 @@ uart:
   # GPIO3 - RX to RXD of bottom RS485 module
   # GPIO1 - TX to TXD of bottom RS485 module
   - id: uart_modbus_bridge
-    rx_pin: GPIO3
+    rx_pin: 
+      number: GPIO3
+      ignore_strapping_warning: true
     tx_pin: GPIO1
     baud_rate: 115200
     rx_buffer_size: 512 # minimum 256 recommended; increase for long RTU responses
