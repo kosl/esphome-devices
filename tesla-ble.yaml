@@ -67,7 +67,7 @@ packages:
     url: https://github.com/PedroKTFC/esphome-tesla-ble/
     path: packages
     files: [common.yml, project.yml, client.yml]
-    ref: v2026.2.1
+    ref: v2026.3.0
   bms1: !include
     file: device-pace-bms.yaml
     vars:
@@ -188,10 +188,10 @@ button:
 
 ###### PACE BMS within TEZE 16-string packs
 # https://tezepower.com/products/tezepower-51.2v-48v-200ah-16s-powerwall-lifepo4-lithium-battery-10kwh-wall-mounted-battery-storage-system
-esphome:
-  project:
+esphome: # from https://github.com/PedroKTFC/esphome-tesla-ble/blob/main/packages/base.yml
+  project: 
     name: PedroKTFC.esphome-tesla-ble
-    version: "2026.2.1"
+    version: "2026.3.0"
   name: ${device_name}
   name_add_mac_suffix: false
   friendly_name: ${friendly_name}
