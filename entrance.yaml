@@ -1,0 +1,98 @@
+# VHM-001 board
+# https://devices.esphome.io/devices/esp-01s-1-channel-relay/
+
+esphome:
+  name: entrance 
+  friendly_name: Entrance
+
+esp8266:
+  board: esp01_1m
+
+# Enable logging
+logger:
+  baud_rate: 0
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "FcHCEV83U0AjgrdteM6+3EYsbwEUe2HP1/tXH2x/UrU="
+
+ota:
+  - platform: esphome
+    password: "dd2867cdc470200e55229d575c061670"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  domain: .local.wgn.si
+  min_auth_mode: WPA2
+  
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Entrance Fallback Hotspot"
+    password: "oerTaiqxjWAJ"
+
+captive_portal:
+
+light:
+  - platform: binary
+    output: output_relay
+    name: "Entrance Light"
+    id: relay
+    # Optional: restore state after power loss
+    restore_mode: RESTORE_DEFAULT_OFF
+
+# Output component for the relay pin
+output:
+  - platform: gpio
+    pin:
+      number: 0
+      inverted: true
+    id: output_relay
+
+switch:
+  - platform: restart
+    name: Restart
+
+
+binary_sensor:
+  - platform: gpio
+    id: pir
+    pin:
+      number: 2
+      inverted: true     # PIR: HIGH idle → LOW on motion
+      mode:
+        input: true
+        pullup: true
+    name: "Entrance Motion"
+    device_class: motion
+
+sensor:
+  - platform: wifi_signal
+    name: WiFi signal
+    update_interval: 600s
+    icon: mdi:wifi
+
+  # human readable uptime sensor output to the text sensor above
+  - platform: uptime
+    name: Uptime
+    id: uptime_sensor
+    update_interval: 60s
+    entity_category: diagnostic
+    icon: mdi:clock-outline
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+# Text sensors with general information.
+text_sensor:
+  # Expose ESPHome version as sensor.
+  - platform: version
+    name: Version
+  # Expose WiFi information as sensors.
+  - platform: wifi_info
+    ip_address:
+      name: IP
+    bssid:
+      name: BSSID
