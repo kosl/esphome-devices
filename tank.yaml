@@ -1,0 +1,51 @@
+esphome:
+  name: tank
+  friendly_name: tank
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "6zmpGG2iau3wMlVfenbQGAxlG4L8J7+NPIhx2NWS0Qg="
+
+ota:
+  - platform: esphome
+    password: "d3e579ea85fb3ec35198155bf3dc9a57"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Tank Fallback Hotspot"
+    password: "rWZCne3dkDEL"
+
+captive_portal:
+    
+
+# UART configurations for both ultrasonic sensors
+uart:
+  - id: uart_0  # First SJN-SR04T 
+    tx_pin: GPIO3 # GPIO1 # GPIO3
+    rx_pin: GPIO4 # GPIO2 # GPIO4
+    baud_rate: 9600
+    debug:
+      direction: BOTH
+    # https://mantech.co.za/Datasheets/Products/AJ-SR04M-200925A.pdf
+
+sensor:
+  - platform: jsn_sr04t # AJ-SR04M https://www.thingiverse.com/thing:6663550
+    id: distance_sensor
+    name: "Distance"
+    update_interval: 1s
+    model: jsn_sr04t
+    uart_id: uart_0
+    
