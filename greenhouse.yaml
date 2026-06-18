@@ -58,7 +58,7 @@ text_sensor:
     id: display_message
     # Initial default value
     lambda: |-
-      return {"Hello World"};
+      return {"Hello"};
     # Update the display when the message changes
     on_value:
       then:
