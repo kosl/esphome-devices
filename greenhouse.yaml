@@ -148,4 +148,4 @@ sensor:
           window_size: 20
           send_every: 20
           send_first_at: 20
-
+    device_class: distance
