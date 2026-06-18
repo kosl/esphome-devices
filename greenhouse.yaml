@@ -23,9 +23,9 @@ wifi:
   output_power: 10.5dB
   domain: .local.wgn.si
   networks:
-  - ssid: !secret wifi_ssid
-    password: !secret wifi_password
   - ssid: !secret wifi_mansarda_ssid
+    password: !secret wifi_password  
+  - ssid: !secret wifi_ssid
     password: !secret wifi_password
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
