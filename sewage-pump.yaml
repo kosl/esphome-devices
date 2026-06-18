@@ -6,6 +6,17 @@
 # diagonal: se-nw 3.615 m, ne-sw 3.323
 # corners rounded at radius 5 cm
 # small south: 1.073 m, north 0.878 m, west 3.037 m, east 3.034
+# JSN sensor
+# rubber diameter 17.5 mm
+# groove width 2.5 and 4 mm top only
+# groove perimeter 21 mm
+# groove starts at 2.5 mm
+# rubber length 18 mm
+# transducer diameter 14 mm
+# transducer out of rubber for 1 mm
+# 
+
+
 esphome:
   name: sewage-pump
   friendly_name: Sewage pump
@@ -36,10 +47,10 @@ logger:
   level: DEBUG  # Options: DEBUG, INFO, WARN, ERROR, NONE
   logs:
     esp-idf: INFO   # To silent GPIO4 debug messages 
-    sensor: INFO    # Disables [D][sensor:131] debug messages
+    sensor: ERROR    # Disables [D][sensor:131] debug messages
     ct_clamp: INFO  # Disables [D][ct_clamp:041] debug messages
     jsn_sr04t: INFO    # Enable debug logging for JSN-SR04T sensor
-    distance: DEBUG  # Custom log tag for distance sensor
+    distance: INFO # Custom log tag for distance sensor
 
 
 # Enable Home Assistant API
@@ -298,6 +309,7 @@ sensor:
             id(distance_samples)++;
         - logger.log:
             tag: distance
+            level: WARN
             format: "Raw Distance (m): %.3f, count: %d"
             args:
               - id(distance_sensor).raw_state
@@ -315,7 +327,7 @@ sensor:
   - platform: jsn_sr04t
     id: distance_sensor_2
     name: "Water Tank Level"
-    update_interval: 6s
+    update_interval: 60s
     model: jsn_sr04t # not aj_sr04m see https://community.home-assistant.io/t/waterproof-ultrasonic-distance-sensors-jsn-sr04t-aj-sr04m-or-sr04m-2/836561/8
     uart_id: uart_1
     filters:
@@ -327,23 +339,23 @@ sensor:
       - median:
           window_size: 11
           send_every: 5
-          send_first_at: 5
-      # Sensor shows 1.451 m when totaly empty and that is 1.777 m from the top
-      # Max height is 0.333 m sensor reading. However, it lowered to 0.358 m due to some leackage
+          send_first_at: 2
+      # Totaly empty is 1.777 m from the top
+      # Max height is 0.333 m sensor reading.
       # Pumping is possible up to 1.700 m from the top (equals 0% fill level)
       # Each cm of height is 85 liter of water
-      # 1.451 -> 1.777
-      # 1.242 -> 1.525
-      # 0.358 -> 0.618
+      # 1.281 -> 1.480
+      # 1.266 -> 1.450
+      # 0.387 -> 0.650 # max level from intake
     on_value:
       then:
-        - logger.log:
-            tag: distance
-            level: INFO
-            format: "Water tank level (m): %.3f, required %d samples"
-            args:
-              - id(distance_sensor_2).state
-              - id(water_tank_samples)
+        # - logger.log:
+        #     tag: distance
+        #     level: INFO
+        #     format: "Water tank level (m): %.3f, required %d samples"
+        #     args:
+        #       - id(distance_sensor_2).state
+        #       - id(water_tank_samples)
         - sensor.template.publish:
             id: water_tank_samples_sensor
             state: !lambda 'return id(water_tank_samples);'
@@ -354,12 +366,12 @@ sensor:
       then:
         - lambda: |-
             id(water_tank_samples)++;
-        # - logger.log:
-        #     tag: distance
-        #     format: "Raw Water tank distance (m): %.3f, count: %d"
-        #     args:
-        #       - id(distance_sensor_2).raw_state
-        #       - id(water_tank_samples)    
+        - logger.log:
+             tag: distance
+             format: "Raw Water tank distance (m): %.3f, count: %d"
+             args:
+               - id(distance_sensor_2).raw_state
+               - id(water_tank_samples)    
   - platform: template
     name: "Water Tank Samples"
     id: water_tank_samples_sensor
