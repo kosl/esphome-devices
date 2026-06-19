@@ -209,7 +209,7 @@ sensor:
           datapoints:  # JSN-SR04T module calibration:
             - 0.506 -> 0.841  # Point 1
             - 1.430 -> 1.690
-            #- 1.445 -> 1.703  # Point 2
+            #- 1.132 -> 1.460  # Point 2
       # - min:
       #     window_size: 5  # Number of measurements
       #     send_every: 2 # How often to send
