@@ -346,6 +346,7 @@ sensor:
       # Each cm of height is 85 liter of water
       # 1.281 -> 1.480
       # 1.266 -> 1.450
+      #.     -> 1.546
       # 0.387 -> 0.650 # max level from intake
     on_value:
       then:
