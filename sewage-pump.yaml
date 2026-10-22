@@ -313,7 +313,7 @@ sensor:
             level: WARN
             format: "Raw Distance (m): %.3f, count: %d"
             args:
-              - id(distance_sensor).raw_state_
+              - id(distance_sensor).get_raw_state()
               - id(distance_samples)
   - platform: template
     name: "Distance Samples"
