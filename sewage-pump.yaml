@@ -460,7 +460,7 @@ light:
  #     inverted: false
  #   restore_mode: ALWAYS_OFF
   - platform: esp32_rmt_led_strip
-    rgb_order: GRB
+    channel_colors: GRB
     chipset: ws2812
     pin: 
       number: GPIO8
