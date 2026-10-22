@@ -60,7 +60,9 @@ api:
 
 ota:
   - platform: esphome
-    password: "6977e2c18f7f9057bddb18ff65c6fad4"
+    encryption:
+      key: "FVwlFObO8/F232+uYCjUk9+TFG7qXdtga7otAkRXo2M="
+#    password: "6977e2c18f7f9057bddb18ff65c6fad4"
 
 wifi:
   output_power: 10.5dB
