@@ -373,7 +373,7 @@ sensor:
              tag: distance
              format: "Raw Water tank distance (m): %.3f, count: %d"
              args:
-               - id(distance_sensor_2).raw_state_
+               - id(distance_sensor_2).get_raw_state()
                - id(water_tank_samples)    
   - platform: template
     name: "Water Tank Samples"
