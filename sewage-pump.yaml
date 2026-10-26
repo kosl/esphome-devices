@@ -213,9 +213,9 @@ sensor:
             #- 1.132 -> 1.460  # Point 2
             #- 1.445 -> 1.710
       - min:
-          window_size: 10  # Number of measurements
-          send_every: 5 # How often to send
-          send_first_at: 5
+          window_size: 20  # Number of measurements
+          send_every: 20 # How often to send
+          send_first_at: 10
       # # Dynamic min/max window (5 samples):
       #  - When pump is OFF  -> use MIN of last 5 samples (idle smoothing)
       #  - When pump is ON   -> use MAX of last 5 samples (follow falling level)
