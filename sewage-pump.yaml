@@ -212,7 +212,7 @@ sensor:
             - 1.430 -> 1.690
             #- 1.132 -> 1.460  # Point 2
             #- 1.445 -> 1.710
-      - min:
+      - median:
           window_size: 20  # Number of measurements
           send_every: 20 # How often to send
           send_first_at: 10
