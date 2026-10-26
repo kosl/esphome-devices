@@ -216,21 +216,25 @@ sensor:
           window_size: 15  # Number of measurements
           send_every: 10 # How often to send. Every second
           send_first_at: 10
-      # Decimate
+      # Decimate if pump off to MAX filter
       - lambda: |-
          const int samples = 60;
          static float buf[samples];
          static int idx = 0;
          
-         if (id(sewage_pump_relay).state)
+         if (id(sewage_pump_relay).state) // TODO or near top
            // Pump ON pass
            return x;
         
          // Pump OFF -> use 0
          static int count = 0;
-         if(count++ % 60 == 0)
+         static float extreme = 0.0;
+         if (x > extreme) extreme = x;
+         if(count++ % 60 == 0) {
+             extreme = 0.0;
              return x;
-         return 0;
+         }
+         return 0; // to be filtered out
       - filter_out: 0
 
 
