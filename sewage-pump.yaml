@@ -50,7 +50,7 @@ logger:
     sensor: ERROR    # Disables [D][sensor:131] debug messages
     ct_clamp: INFO  # Disables [D][ct_clamp:041] debug messages
     jsn_sr04t: INFO    # Enable debug logging for JSN-SR04T sensor
-    distance: INFO # Custom log tag for distance sensor
+    distance: ERROR # Custom log tag for distance sensor
 
 
 # Enable Home Assistant API
