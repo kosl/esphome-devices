@@ -212,43 +212,43 @@ sensor:
             - 1.430 -> 1.690
             #- 1.132 -> 1.460  # Point 2
             #- 1.445 -> 1.710
-      # - min:
-      #     window_size: 5  # Number of measurements
-      #     send_every: 2 # How often to send
-      #     send_first_at: 2
+      - min:
+          window_size: 10  # Number of measurements
+          send_every: 5 # How often to send
+          send_first_at: 5
       # # Dynamic min/max window (5 samples):
       #  - When pump is OFF  -> use MIN of last 5 samples (idle smoothing)
       #  - When pump is ON   -> use MAX of last 5 samples (follow falling level)
-      - lambda: |-
-          static float buf[10];
-          static int idx = 0;
-          static int count = 0;
+      #- lambda: |-
+      #    static float buf[10];
+      #    static int idx = 0;
+      #    static int count = 0;
 
-          // store current sample in ring buffer
-          buf[idx] = x;
-          idx = (idx + 1) % 10;
-          if (count < 10) count++;
+      #    // store current sample in ring buffer
+      #    buf[idx] = x;
+      #    idx = (idx + 1) % 10;
+      #    if (count < 10) count++;
 
-          if (count == 0) {
-            // safety fallback: no history yet
-            return x;
-          }
+      #    if (count == 0) {
+      #      // safety fallback: no history yet
+      #      return x;
+      #    }
 
-          float extreme = buf[0];
+      #    float extreme = buf[0];
 
-          if (id(sewage_pump_relay).state) {
-            // Pump ON -> use MAX of window
-            for (int i = 1; i < count; i++) {
-              if (buf[i] > extreme) extreme = buf[i];
-            }
-          } else {
-            // Pump OFF -> use MIN of window
-            for (int i = 1; i < count; i++) {
-              if (buf[i] < extreme) extreme = buf[i];
-            }
-          }
+      #    if (id(sewage_pump_relay).state) {
+      #      // Pump ON -> use MAX of window
+      #      for (int i = 1; i < count; i++) {
+      #        if (buf[i] > extreme) extreme = buf[i];
+      #      }
+      #    } else {
+      #      // Pump OFF -> use MIN of window
+      #      for (int i = 1; i < count; i++) {
+      #        if (buf[i] < extreme) extreme = buf[i];
+      #      }
+      #    }
 
-          return extreme;
+      #    return extreme;
 
     on_value_range:
         - below: !lambda return id(pump_high_level).state/100.0;
