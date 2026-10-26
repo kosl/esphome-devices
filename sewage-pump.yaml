@@ -329,7 +329,7 @@ sensor:
   - platform: jsn_sr04t
     id: distance_sensor_2
     name: "Water Tank Level"
-    update_interval: 60s
+    update_interval: never
     model: jsn_sr04t # not aj_sr04m see https://community.home-assistant.io/t/waterproof-ultrasonic-distance-sensors-jsn-sr04t-aj-sr04m-or-sr04m-2/836561/8
     uart_id: uart_1
     filters:
