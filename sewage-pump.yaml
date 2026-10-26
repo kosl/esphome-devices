@@ -342,7 +342,7 @@ sensor:
           window_size: 110
           send_every: 100
           send_first_at: 10
-      - throttle_average: 5 min
+      - throttle_average: 1 min
           
       # Totaly empty is 1.777 m from the top
       # Max height is 0.333 m sensor reading.
