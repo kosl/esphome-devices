@@ -192,11 +192,11 @@ sensor:
     id: total_pumped_volume_sensor
     unit_of_measurement: "m³"
     accuracy_decimals: 3
-    lambda: return id(total_pumped_volume);    
+    lambda: return id(total_pumped_volume);
   - platform: jsn_sr04t # AJ-SR04M https://www.thingiverse.com/thing:6663550
     id: distance_sensor
     name: "Distance"
-    update_interval: never # use dynamic update with interval below
+    update_interval: never # Mode 1 (47kOhm) updates every 100 ms
     model: jsn_sr04t
     uart_id: uart_0
     filters:
@@ -204,7 +204,7 @@ sensor:
           min_value: 0.1
           max_value: 1.9
           ignore_out_of_range: true
-      - timeout: 5min
+      - timeout: 1s
       - calibrate_linear:
           # Format: sensor reading -> actual measured distance
           datapoints:  # JSN-SR04T module calibration:
@@ -213,8 +213,8 @@ sensor:
             #- 1.132 -> 1.460  # Point 2
             #- 1.445 -> 1.710
       - median:
-          window_size: 20  # Number of measurements
-          send_every: 20 # How often to send
+          window_size: 15  # Number of measurements
+          send_every: 10 # How often to send. Every second
           send_first_at: 10
       # # Dynamic min/max window (5 samples):
       #  - When pump is OFF  -> use MIN of last 5 samples (idle smoothing)
