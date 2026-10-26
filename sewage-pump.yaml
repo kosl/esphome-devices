@@ -502,23 +502,23 @@ script:
       - switch.turn_on: garden_light_relay
 
 interval:
-  - interval: 10s # When pump is OFF
-    id: normal_interval
-    then:
-      - if:
-          condition:
-            not:
-              switch.is_on: sewage_pump_relay
-          then:
-            - component.update: distance_sensor
-  - interval: 0.5s # When pump is ON
-    id: pump_interval
-    then:
-      - if:
-          condition:
-            switch.is_on: sewage_pump_relay
-          then:
-            - component.update: distance_sensor
+  # - interval: 10s # When pump is OFF
+  #   id: normal_interval
+  #   then:
+  #     - if:
+  #         condition:
+  #           not:
+  #             switch.is_on: sewage_pump_relay
+  #         then:
+  #           - component.update: distance_sensor
+  # - interval: 0.5s # When pump is ON
+  #   id: pump_interval
+  #   then:
+  #     - if:
+  #         condition:
+  #           switch.is_on: sewage_pump_relay
+  #         then:
+  #           - component.update: distance_sensor
   - interval: 1s
     id: ct_publish_control
     then:
