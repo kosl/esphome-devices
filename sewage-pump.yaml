@@ -228,7 +228,7 @@ sensor:
          // Pump OFF -> use 0
          static int count = 0;
          static float extreme = 0.0;
-         if (x > extreme) extreme = x;
+         if (x > extreme) extreme = x; // MAX distance
          if(count++ % samples == 0) {
              x = extreme;
              extreme = 0.0;
