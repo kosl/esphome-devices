@@ -339,9 +339,9 @@ sensor:
           max_value: 1.8
           ignore_out_of_range: true
       - median:
-          window_size: 11
-          send_every: 5
-          send_first_at: 2
+          window_size: 110
+          send_every: 100
+          send_first_at: 10
       # Totaly empty is 1.777 m from the top
       # Max height is 0.333 m sensor reading.
       # Pumping is possible up to 1.700 m from the top (equals 0% fill level)
