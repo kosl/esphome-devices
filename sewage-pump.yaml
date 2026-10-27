@@ -234,8 +234,7 @@ sensor:
              extreme = 0.0;
              return x;
          }
-         return 0; // to be filtered out
-      - filter_out: 0
+         return {}; // Do not publish. to be filtered out
 
 
     on_value_range:
@@ -323,7 +322,7 @@ sensor:
     filters:
       - timeout: 10min  
       - clamp:
-          min_value: 0.1
+          min_value: 0.2
           max_value: 1.8
           ignore_out_of_range: true
       - median:
