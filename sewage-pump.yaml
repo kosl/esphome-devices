@@ -215,7 +215,6 @@ sensor:
           window_size: 15  # Number of measurements
           send_every: 10 # How often to send. Every second
           send_first_at: 10
-      - timeout: 2s
       # Decimate if pump off to MAX filter
       - lambda: |-
          const int samples = 60;
@@ -235,6 +234,7 @@ sensor:
              return x;
          }
          return {}; // Do not publish. to be filtered out
+      - timeout: 2 min
 
 
     on_value_range:
