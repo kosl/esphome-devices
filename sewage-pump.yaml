@@ -291,7 +291,25 @@ sensor:
             state: !lambda 'return id(distance_samples);'
         - globals.set:
               id: distance_samples
-              value: '0'      
+              value: '0'
+            # Extra actions only when NaN AND pump is ON
+        - if:
+            condition:
+              and:
+                - lambda: 'return std::isnan(x);'
+                - switch.is_on: sewage_pump_relay
+            then:
+              - switch.turn_off: sewage_pump_relay
+              - light.turn_on:
+                      id: onboard_rgb_led
+                      red: 100%
+                      green: 0%
+                      blue: 0%
+              - logger.log:
+                  tag: distance
+                  level: ERROR 
+                  format: "Distance timed out (NaN) while pump is ON"
+              
     on_raw_value:
       then:
         - lambda: |-
