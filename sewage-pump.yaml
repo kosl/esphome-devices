@@ -316,11 +316,10 @@ sensor:
   - platform: jsn_sr04t
     id: distance_sensor_2
     name: "Water Tank Level"
-    update_interval: never
+    update_interval: never # Mode 1
     model: jsn_sr04t # not aj_sr04m see https://community.home-assistant.io/t/waterproof-ultrasonic-distance-sensors-jsn-sr04t-aj-sr04m-or-sr04m-2/836561/8
     uart_id: uart_1
     filters:
-      - timeout: 10min  
       - clamp:
           min_value: 0.2
           max_value: 1.8
@@ -330,6 +329,7 @@ sensor:
           send_every: 100
           send_first_at: 10
       - throttle_average: 1 min
+      - timeout: 2 min
           
       # Totaly empty is 1.777 m from the top
       # Max height is 0.333 m sensor reading.
