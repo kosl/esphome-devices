@@ -18,7 +18,7 @@ esp32:
 logger:
   level: DEBUG
   logs:
-    adc.esp32: ERROR
+    adc: ERROR
     ct_clamp: INFO
     sensor: INFO
 
