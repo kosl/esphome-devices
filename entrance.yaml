@@ -42,6 +42,14 @@ light:
     id: relay
     # Optional: restore state after power loss
     restore_mode: RESTORE_DEFAULT_OFF
+    # Clear motion as soon as the light turns on; re-evaluate when it turns off
+    on_turn_on:
+      - binary_sensor.template.publish:
+          id: entrance_motion
+          state: OFF
+    on_turn_off:
+      - lambda: |-
+          id(entrance_motion).publish_state(id(pir).state);
 
 # Output component for the relay pin
 output:
@@ -57,6 +65,7 @@ switch:
 
 
 binary_sensor:
+  # Raw PIR – kept internal
   - platform: gpio
     id: pir
     pin:
@@ -65,7 +74,17 @@ binary_sensor:
       mode:
         input: true
         pullup: true
+    internal: true
+    on_state:
+      then:
+        - lambda: |-
+            // Only report motion when the light is currently OFF
+            id(entrance_motion).publish_state(x && !id(relay).current_values.is_on());
+
+  # Motion reported to Home Assistant only when light is off
+  - platform: template
     name: "Entrance Motion"
+    id: entrance_motion
     device_class: motion
 
 sensor:
