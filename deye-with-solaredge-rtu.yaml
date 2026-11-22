@@ -134,7 +134,7 @@ interval:
   - interval: 30s
     then:
       - lambda: |-
-          ESP_LOGI("health", "System Health: Heap=%d ", esp_get_free_heap_size());
+          ESP_LOGI("health", "System Health: Heap=%u", (unsigned) esp_get_free_heap_size());
 
 # =========== Diagnostic sensors ===========
 # Onboard WS2812 RGB LED on GPIO21 (ESP32-S3 Zero), purple at 50% on every boot

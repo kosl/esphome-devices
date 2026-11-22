@@ -380,7 +380,7 @@ interval:
                   - lambda: |-
                       constexpr size_t count = 53;
                       id(solaredge_meter_pending) = false;
-                      ESP_LOGI("timing", "Solaredge METER took %u ms to reply", millis() - id(global_modbus_response_timer));
+                      ESP_LOGI("timing", "Solaredge METER took %u ms to reply", (unsigned) (millis() - id(global_modbus_response_timer)));
                       if (values.size() != count) {
                         ESP_LOGE("modbus_meter1", "Invalid response size: got %zu, expected %zu", values.size(), count);
                         return;
@@ -522,7 +522,7 @@ interval:
             - lambda: |-
                 constexpr size_t count = 32;
                 id(solaredge_inverter_pending) = false;  // reset flag when done
-                ESP_LOGI("timing", "Solaredge took %u ms to reply", millis() - id(global_modbus_response_timer));
+                ESP_LOGI("timing", "Solaredge took %u ms to reply", (unsigned) (millis() - id(global_modbus_response_timer)));
 
                 if (values.size() != count) {
                   ESP_LOGE("modbus_solaredge", "Invalid response size: got %zu, expected %zu", values.size(), count);
