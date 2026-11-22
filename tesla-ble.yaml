@@ -199,15 +199,15 @@ button:
   # Press, then check the log for tag "pace_dump". Exception 0x02 = illegal data address.
   # Uses its own request so the regular modbus_controller polling is never affected. Remove when done.
   - platform: template
-    name: "PACE Dump Registers 4096–4200"
+    name: "PACE Dump Registers 0180–0299"
     icon: mdi:magnify-scan
     entity_category: diagnostic
     on_press:
       - modbus_client.read_holding_registers:
           modbus_id: mod_bus
           address: 0x01
-          start_address: 4096
-          count: 106
+          start_address: 180
+          count: 119
           on_response:
             - lambda: |-
                 std::string line;
