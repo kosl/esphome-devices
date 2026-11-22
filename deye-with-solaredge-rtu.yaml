@@ -9,19 +9,13 @@ esphome:
   friendly_name: Deye & Solaredge
   min_version: 2026.11.0 # modbus_client actions + modbus_server registers (device-solaredge-rtu-sdm630.yaml)
   devices: # https://esphome.io/components/esphome/#sub-devices
+    # relation: via = separate physical device reached through this bridge (Modbus RTU)
     - id: device_solaredge
       name: "Solaredge Inverter"
+      relation: via
     - id: device_solaredge_meter1
       name: "Solaredge Meter 1"
-  on_boot:
-    priority: 600  # Medium-high priority (after WiFi connects)
-    then:
-      - light.turn_on:
-          id: onboard_rgb_led
-          red: 50%
-          green: 0%
-          blue: 50%
-          brightness: 50%
+      relation: via
 
 esp32:
   board: esp32-s3-fh4r2 # ESP32-S3 zero board
@@ -143,17 +137,23 @@ interval:
           ESP_LOGI("health", "System Health: Heap=%d ", esp_get_free_heap_size());
 
 # =========== Diagnostic sensors ===========
-# Enable built-in status LED on GPIO8
+# Onboard WS2812 RGB LED on GPIO21 (ESP32-S3 Zero), purple at 50% on every boot
 light:
   - platform: esp32_rmt_led_strip
-    rgb_order: GRB
-    chipset: ws2812
-    pin: 
-      number: GPIO21
-    num_leds: 1
-    name: "Onboard RGB LED"
     id: onboard_rgb_led
+    name: "Onboard RGB LED"
     entity_category: diagnostic
+    chipset: WS2812
+    channel_colors: GRB # replaces deprecated rgb_order (removed in 2027.3.0)
+    pin: GPIO21
+    num_leds: 1
+    restore_state: none # always start from initial_state, ignore saved state
+    initial_state: # replaces the former esphome.on_boot light.turn_on
+      state: true
+      brightness: 50%
+      red: 50%
+      green: 0%
+      blue: 50%
 
 button:
   - platform: restart
