@@ -218,19 +218,18 @@ sensor:
     name: "Power"
     address: 0
     register_type: holding
-    value_type: U_WORD
-    register_count: 2
+    value_type: RAW # one read of the whole block; register_count was removed in ESPHome 2026.9
     response_size: 4
     unit_of_measurement: "W"
     device_class: power
     state_class: measurement
     accuracy_decimals: 2
     lambda: |-
-      if (data.size() < 4) {
+      if (data.size() < item->offset + 4u) {
         return NAN;
       }
-      float current = (int16_t)(data[0] << 8 | data[1] << 0);
-      float total_voltage = (uint16_t)(data[2] << 8 | data[3] << 0);
+      float current = (int16_t)(data[item->offset] << 8 | data[item->offset + 1]);
+      float total_voltage = (uint16_t)(data[item->offset + 2] << 8 | data[item->offset + 3]);
       return current * total_voltage * 0.0001f;
 
   # State of Charge
@@ -596,8 +595,7 @@ sensor:
     name: "Delta Cell Voltage"
     address: 15
     register_type: holding
-    value_type: U_WORD
-    register_count: 16
+    value_type: RAW # one read of the whole block; register_count was removed in ESPHome 2026.9
     response_size: 32
     unit_of_measurement: "V"
     device_class: voltage
@@ -605,7 +603,7 @@ sensor:
     accuracy_decimals: 3
     lambda: |-
       uint8_t cells = 16;
-      if (data.size() < cells * 2) {
+      if (data.size() < item->offset + cells * 2u) {
         return NAN;
       }
 
@@ -1611,7 +1609,6 @@ text_sensor:
     name: "Warnings"
     address: 9
     register_type: holding
-    register_count: 1
     response_size: 2
     raw_encode: HEXBYTES
     lambda: |-
@@ -1636,7 +1633,7 @@ text_sensor:
       };
       std::string values = "";
 
-      uint16_t mask = modbus_controller::word_from_hex_str(x, 0);
+      uint16_t mask = modbus::helpers::word_from_hex_str(x, 0);
       if (mask) {
         for (int i = 0; i < WARNINGS_SIZE; i++) {
           if (mask & (1 << i)) {
@@ -1657,7 +1654,6 @@ text_sensor:
     name: "Protections"
     address: 10
     register_type: holding
-    register_count: 1
     response_size: 2
     raw_encode: HEXBYTES
     lambda: |-
@@ -1682,7 +1678,7 @@ text_sensor:
       };
       std::string values = "";
 
-      uint16_t mask = modbus_controller::word_from_hex_str(x, 0);
+      uint16_t mask = modbus::helpers::word_from_hex_str(x, 0);
       if (mask) {
         for (int i = 0; i < PROTECTIONS_SIZE; i++) {
           if (mask & (1 << i)) {
@@ -1703,7 +1699,6 @@ text_sensor:
     name: "Faults"
     address: 11
     register_type: holding
-    register_count: 1
     response_size: 2
     raw_encode: HEXBYTES
     lambda: |-
@@ -1720,7 +1715,7 @@ text_sensor:
       };
       std::string values = "";
 
-      uint16_t mask = modbus_controller::word_from_hex_str(x, 0);
+      uint16_t mask = modbus::helpers::word_from_hex_str(x, 0);
       if (mask) {
         for (int i = 0; i < FAULTS_SIZE; i++) {
           if (mask & (1 << i)) {
@@ -1741,7 +1736,6 @@ text_sensor:
     name: "Status"
     address: 11
     register_type: holding
-    register_count: 1
     response_size: 2
     raw_encode: HEXBYTES
     lambda: |-
@@ -1758,7 +1752,7 @@ text_sensor:
       };
       std::string values = "";
 
-      uint16_t mask = modbus_controller::word_from_hex_str(x, 0);
+      uint16_t mask = modbus::helpers::word_from_hex_str(x, 0);
       if (mask) {
         for (int i = 8; i < (STATUS_SIZE+8); i++) {
           if (mask & (1 << i)) {
@@ -1777,10 +1771,8 @@ text_sensor:
     modbus_controller_id: ${modbus_controller_id}
     device_id: ${device_id}
     name: "Version Information"
-    skip_updates: 60
     address: 150
     register_type: holding
-    register_count: 10
     response_size: 20
 
   # 160  Model SN                             20 byte  RW  uint16  ASCII BMS Manufacturer
@@ -1788,10 +1780,8 @@ text_sensor:
     modbus_controller_id: ${modbus_controller_id}
     device_id: ${device_id}
     name: "BMS Serial Number"
-    skip_updates: 60
     address: 160
     register_type: holding
-    register_count: 10
     response_size: 20
 
   # 170  PACK SN                              20 byte  RW  uint16  ASCII PACK Manufacturer
@@ -1799,8 +1789,6 @@ text_sensor:
     modbus_controller_id: ${modbus_controller_id}
     device_id: ${device_id}
     name: "Battery Serial Number"
-    skip_updates: 60
     address: 170
     register_type: holding
-    register_count: 10
     response_size: 20

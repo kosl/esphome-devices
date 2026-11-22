@@ -18,6 +18,9 @@ esp32:
   flash_size: $flash_size
   framework:
     type: esp-idf
+    sdkconfig_options: # from upstream packages/base.yml (v2026.10.0)
+      CONFIG_MBEDTLS_PEM_WRITE_C: y
+      CONFIG_MBEDTLS_PEM_PARSE_C: y
 
 logger:
   level: INFO
@@ -54,6 +57,7 @@ wifi:
 captive_portal:
 
 api:
+  homeassistant_services: true # from upstream packages/base.yml (v2026.10.0)
   encryption:
     key: !secret api_encryption_key # use "key: !secret your_secret_key_name" for greater security
 
@@ -66,8 +70,13 @@ packages:
   remote_package_files:
     url: https://github.com/PedroKTFC/esphome-tesla-ble/
     path: packages
-    files: [common.yml, project.yml, client.yml]
-    ref: v2026.3.0
+    files:
+      - common.yml
+      - project.yml
+      - client.yml
+      - charging-freshness.yml # receipt timestamps for charging watchdogs (docs/charging-freshness.md)
+      - evcc.yml               # "Charger EVCC" switch, "Charging Amps EVCC" number, "Charging State ISO"
+    ref: v2026.10.0
   bms1: !include
     file: device-pace-bms.yaml
     vars:
@@ -80,6 +89,7 @@ packages:
       device_id: device_pace_bms2
 
   # listener: github://PedroKTFC/esphome-tesla-ble/packages/listener.yml # Uncomment this to scan find your VIN BLE MAC address
+  # Optional upstream packages (add to files: above): language_de/fr/hu/nl.yml
 
 # The following shows how to change the name of a sensor and how to change any of the parameters.
 # tesla_ble_vehicle: # THIS LINE MUST BE UNCOMMENTED IF ANY OF THE CHANGES BELOW ARE WANTED
@@ -191,8 +201,9 @@ button:
 esphome: # from https://github.com/PedroKTFC/esphome-tesla-ble/blob/main/packages/base.yml
   project: 
     name: PedroKTFC.esphome-tesla-ble
-    version: "2026.3.0"
+    version: "2026.10.0"
   name: ${device_name}
+  min_version: 2026.11.0 # modbus_controller API used by device-pace-bms.yaml
   name_add_mac_suffix: false
   friendly_name: ${friendly_name}
   libraries:
@@ -220,18 +231,17 @@ uart:
       dummy_receiver: false
 
 modbus:
-  send_wait_time: 200ms
-  uart_id: rs485
   id: mod_bus
+  uart_id: rs485
+  send_wait_time: 200ms # no-response timeout
+  turnaround_time: 200ms # spacing between commands (replaces modbus_controller command_throttle)
 
 modbus_controller:
   - id: pace_bms1
     address: 0x01
     modbus_id: mod_bus
-    command_throttle: 200ms
     update_interval: 30s
   - id: pace_bms2
     address: 0x02
     modbus_id: mod_bus
-    command_throttle: 200ms
     update_interval: 30s
