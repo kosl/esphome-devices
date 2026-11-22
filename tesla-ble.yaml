@@ -29,7 +29,7 @@ logger:
 
 ota:
   platform: esphome
-  password: !secret ota_password
+  encryption:
 
 wifi:
   output_power: 8.5dB # Minimise self interference
