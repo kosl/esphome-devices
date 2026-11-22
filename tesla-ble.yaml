@@ -211,8 +211,10 @@ esphome: # from https://github.com/PedroKTFC/esphome-tesla-ble/blob/main/package
   devices: # https://esphome.io/components/esphome/#sub-devices
     - id: device_pace_bms1
       name: "PACE BMS Pack 1"
+      relation: via
     - id: device_pace_bms2
       name: "PACE BMS Pack 2"
+      relation: via
   on_boot:
     priority: 600  # Medium-high priority (after WiFi connects)
     then:
