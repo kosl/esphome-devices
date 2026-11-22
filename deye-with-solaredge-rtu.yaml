@@ -81,8 +81,8 @@ uart:
     tx_pin: GPIO5
     baud_rate: 9600
     rx_buffer_size: 256
-    #debug:
-    #  direction: BOTH
+    debug:
+      direction: BOTH
   # GPIO3 - RX to RXD of bottom RS485 module
   # GPIO1 - TX to TXD of bottom RS485 module
   - id: uart_modbus_bridge
