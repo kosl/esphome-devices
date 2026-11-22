@@ -35,6 +35,19 @@ binary_sensor:
     register_type: holding
     bitmask: 0x0800
 
+  #      Bit 12: Status: Charge current limiter ON/OFF (PACE Modbus V1.3, register 0011)
+  #      The limiter caps charge current (e.g. ~10 A) when it would exceed the start current,
+  #      typically when parallel packs are unbalanced. Its settings (enable, start current, gear)
+  #      are not exposed over Modbus V1.3 - only via the PACE ASCII protocol (PbmsTools).
+  - platform: modbus_controller
+    modbus_controller_id: ${modbus_controller_id}
+    device_id: ${device_id}
+    name: "Charge Current Limiter"
+    icon: mdi:current-dc
+    address: 11
+    register_type: holding
+    bitmask: 0x1000
+
   #  12  Balance status-bits per cell (1-16)   2 byte   R  uint16  Hex
   #      Bit 1: Status: Balancing cell 1
   - platform: modbus_controller
