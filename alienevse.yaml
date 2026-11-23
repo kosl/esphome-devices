@@ -131,6 +131,11 @@ text_sensor:
     name: "State"
     entity_category: diagnostic
     update_interval: never
+  - platform: template
+    id: charging_state_iso
+    name: "State ISO"
+    entity_category: diagnostic
+    update_interval: never
   - platform: wifi_info
     ssid:
       name: "Connected SSID"
@@ -178,9 +183,11 @@ script:
           switch(state) {
             case 1:
               id(charging_state).publish_state("A (no vehicle)");
+              id(charging_state_iso).publish_state("A");
               duty = 100.0; relay_b = relay_c = false;
               break;
             case 2:
+              id(charging_state_iso).publish_state("B");
               if (enabled) {
                 id(charging_state).publish_state("B1 (charging enabled)");
               } else {
@@ -190,6 +197,7 @@ script:
               relay_b = true; relay_c = false;
               break;
             case 3:
+                id(charging_state_iso).publish_state("C");
                 if (enabled) {
                   id(charging_state).publish_state("C1 (charging requested)");
                 } else {
