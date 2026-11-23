@@ -28,7 +28,8 @@ api:
 
 ota:
   - platform: esphome
-    password: "d4e0fb819ac7a260e2e2fc0c80627a5d"
+    encryption:
+    #password: "d4e0fb819ac7a260e2e2fc0c80627a5d"
 
 wifi:
   networks:
